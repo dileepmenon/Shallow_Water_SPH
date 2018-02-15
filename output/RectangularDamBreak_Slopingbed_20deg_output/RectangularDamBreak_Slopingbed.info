@@ -1,0 +1,1 @@
+{"cpu_time": 0, "completed": false, "args": ["--restart-file", "./rect_slope_10/RectangularDamBreak_Slopingbed_3300.npz"], "output_dir": "/Users/dileep/Desktop/My_SWESPH_Work/RectangularDamBreak_Slopingbed_output", "fname": "RectangularDamBreak_Slopingbed"}
