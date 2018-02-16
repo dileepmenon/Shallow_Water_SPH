@@ -82,7 +82,7 @@ class ParticleSplitTest(Application):
                 u_prev_iter=u_prev_iter, v_prev_iter=v_prev_iter, cs=cs,
                 dt_cfl=dt_cfl, alpha=alpha, name='fluid')
 
-        props = ['m', 'h', 'rho', 'p']
+        props = ['m', 'h', 'rho', 'p', 'pa_to_split']
         pa.add_output_arrays(props)
         compute_initial_props([pa])
         return [pa]
@@ -90,7 +90,7 @@ class ParticleSplitTest(Application):
     def create_solver(self):
         kernel = CubicSpline(dim=2)
         integrator = EulerIntegrator(fluid=EulerStep())
-        dt = 1e-4; tf = 2e-4
+        dt = 1e-4; tf = 1e-4
         solver = Solver(
             kernel=kernel,
             dim=2,
@@ -105,14 +105,9 @@ class ParticleSplitTest(Application):
         equations = [
                     Group(
                         equations=[
-                            CheckForParticlesToSplit(dest='fluid', A_max=2900)
-                            ],
-                        ),
-                    Group(
-                        equations=[
-                                SummationDensity(dest='fluid',
-                                                 sources=['fluid',]),
-                                ]
+                             SummationDensity(dest='fluid',
+                                              sources=['fluid',]),
+                             ]
                             ),
                     Group(
                         equations=[
@@ -124,10 +119,15 @@ class ParticleSplitTest(Application):
                             SWEOS(dest='fluid'),
                             ]
                         ),
+                    Group(
+                        equations=[
+                            CheckForParticlesToSplit(dest='fluid', A_max=2900)
+                            ],
+                        ),
                     ]
         return equations
 
-    def post_step(self, solver):
+    def pre_step(self, solver):
         for pa in self.particles:
             ps = ParticleSplit(pa)
             ps.do_particle_split()
@@ -141,7 +141,7 @@ def compute_initial_props(particles):
     one_time_equations = [
                 Group(
                     equations=[
-                            SummationDensity(dest='fluid', sources=['fluid',]),
+                        SummationDensity(dest='fluid', sources=['fluid',]),
                             ]
                     ),
                 Group(
