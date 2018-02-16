@@ -1,0 +1,64 @@
+INFO|2018-02-15 14:30:30,558|pysph.solver.application|Running on Dileeps-MacBook-Air.local with address 10.196.13.104
+INFO|2018-02-15 14:30:37,969|pysph.solver.application|Generating output in /Users/dileep/Desktop/My_SWESPH_Work/Particle_Split_Test_output
+INFO|2018-02-15 14:30:37,972|pysph.solver.solver|Using equations:
+----------------------------------------------------------------------
+[
+Group(equations=[
+CheckForParticlesToSplit(dest='fluid', A_max=2900)
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+SummationDensity(dest='fluid', sources=['fluid'])
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+UpdateSmoothingLength(h0=60.0, dim=2, dest='fluid', sources=None)
+    ],
+    real=True, update_nnps=True, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+SWEOS(dest='fluid', sources=None, g=9.81, rhow=1000.0)
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0)
+]
+----------------------------------------------------------------------
+INFO|2018-02-15 14:30:37,972|pysph.solver.solver|Using integrator:
+----------------------------------------------------------------------
+  EulerIntegrator(fluid=EulerStep())
+----------------------------------------------------------------------
+INFO|2018-02-15 14:30:43,063|pysph.solver.application|started multiprocessing interface on ('0.0.0.0', 8800)
+INFO|2018-02-15 14:30:43,064|pysph.solver.application|Setup took: 12.70499 secs
+INFO|2018-02-15 14:30:43,065|pysph.solver.solver|Writing output at time 0, iteration 0, dt = 0.0001
+INFO|2018-02-15 14:30:43,105|pysph.solver.solver|Writing output at time 0.0002, iteration 2, dt = 0.0001
+INFO|2018-02-15 14:30:43,114|pysph.solver.application|Run took: 0.04910 secs
+INFO|2018-02-16 20:42:15,336|pysph.solver.application|Running on Dileeps-MacBook-Air.local with address 192.168.1.101
+INFO|2018-02-16 20:42:15,511|pysph.solver.application|Generating output in /Users/dileep/Desktop/Shallow_Water_SPH/output/Particle_Split_Test_output
+INFO|2018-02-16 20:42:15,512|pysph.solver.solver|Using equations:
+----------------------------------------------------------------------
+[
+Group(equations=[
+CheckForParticlesToSplit(dest='fluid', A_max=2900)
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+SummationDensity(dest='fluid', sources=['fluid'])
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+UpdateSmoothingLength(h0=60.0, dim=2, dest='fluid', sources=None)
+    ],
+    real=True, update_nnps=True, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+SWEOS(dest='fluid', sources=None, g=9.81, rhow=1000.0)
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0)
+]
+----------------------------------------------------------------------
+INFO|2018-02-16 20:42:15,512|pysph.solver.solver|Using integrator:
+----------------------------------------------------------------------
+  EulerIntegrator(fluid=EulerStep())
+----------------------------------------------------------------------
+INFO|2018-02-16 20:42:22,230|pysph.solver.application|started multiprocessing interface on ('0.0.0.0', 8800)
+INFO|2018-02-16 20:42:22,231|pysph.solver.application|Setup took: 7.08900 secs
+INFO|2018-02-16 20:42:22,233|pysph.solver.solver|Writing output at time 0, iteration 0, dt = 0.0001
+INFO|2018-02-16 20:42:22,257|pysph.solver.solver|Writing output at time 0.0002, iteration 2, dt = 0.0001
+INFO|2018-02-16 20:42:22,265|pysph.solver.application|Run took: 0.03236 secs
