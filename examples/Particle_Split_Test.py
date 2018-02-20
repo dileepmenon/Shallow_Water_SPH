@@ -20,6 +20,9 @@ from pysph.sph.SWE.basic_equations import *
 # PySPH Evaluator
 from pysph.tools.sph_evaluator import SPHEvaluator
 
+# PySPH Interpolator
+from pysph.tools.interpolator import Interpolator
+
 
 # Constants
 rho_w = 10000.0
@@ -146,6 +149,16 @@ class ParticleSplitTest(Application):
         self.particles[0].A = ones(len(self.particles[0].A)) * 2500
         self.nnps.update()
 
+    def post_process(self):
+        rho_exact = 1e4
+        rho_num = self.particles[0].rho
+        # Filter values to get rho >= 10000, ignoring boundary values
+        rho_num = rho_num[rho_num >= 10000]
+        print('\nMax rho is %0.3f '%max(rho_num))
+        l2_err_rho = sqrt(np.sum((rho_exact - rho_num)**2)
+                          / len(rho_num))
+        print('L2 error in density is %0.3f \n'%l2_err_rho)
+
 
 def compute_initial_props(particles):
     one_time_equations = [
@@ -165,3 +178,4 @@ def compute_initial_props(particles):
 if __name__ == '__main__':
     app = ParticleSplitTest()
     app.run()
+    app.post_process()
