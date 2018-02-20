@@ -31,15 +31,6 @@ h0 = hdx * dx
 dim = 2
 
 
-class SummationDensity(Equation):
-    def initialize(self, d_idx, d_rho):
-        d_rho[d_idx] = 0.0
-
-    def loop(self, d_idx, d_rho, s_idx, s_m, WI):
-        d_rho[d_idx] += s_m[s_idx] * WI
-
-
-
 class ParticleSplitTest(Application):
     def create_particles(self):
         x, y = mgrid[0:1400+1e-4:dx, 0:1400+1e-4:dx]
@@ -56,18 +47,27 @@ class ParticleSplitTest(Application):
         h = ones_like(x) * h0
 
         rho = ones_like(x) * rho_w
+        rho0 = ones_like(x) * rho_w
+        rho_prev_iter = zeros_like(x)
+        rho_residual= zeros_like(x)
+        positive_rho_residual = zeros_like(x)
+        summation_rho = zeros_like(x)
+
         A = m / rho
         A[idx_inner_pa_to_split] = 3000
-        rho0 = ones_like(x) * rho_w
 
         dw = ones_like(x) * d
         p = ones_like(x) * 0.5 * rho_w * g * d**2
 
         pa_to_split = zeros_like(x)
-        alpha = ones_like(x)
+        alpha = zeros_like(x)
+        psi = zeros_like(x)
+        l2_err_rho_residual = zeros_like(x)
         cs = ones_like(x)
         dt_cfl = ones_like(x)
 
+        tv = zeros_like(x)
+        tu = zeros_like(x)
 
         u = zeros_like(x)
         u_prev_iter = zeros_like(x)
@@ -77,12 +77,14 @@ class ParticleSplitTest(Application):
         au = zeros_like(x)
         av = zeros_like(x)
 
-        pa = gpa(x=x, y=y, m=m, A=A, u=u, v=v, au=au, av=av,
-                pa_to_split=pa_to_split, rho=rho, rho0=rho0, h=h, p=p, dw=dw,
-                u_prev_iter=u_prev_iter, v_prev_iter=v_prev_iter, cs=cs,
-                dt_cfl=dt_cfl, alpha=alpha, name='fluid')
+        pa = gpa(x=x, y=y, m=m, rho0=rho0, rho=rho, alpha=alpha,
+                rho_prev_iter=rho_prev_iter, psi=psi,
+                l2_err_rho_residual=l2_err_rho_residual, h=h, u=u, v=v,
+                u_prev_iter=u_prev_iter, v_prev_iter=v_prev_iter, au=au, av=av,
+                A=A, cs=cs, dt_cfl=dt_cfl, tv=tv, tu=tu, p=p, dw=dw,
+                pa_to_split=pa_to_split, name='fluid')
 
-        props = ['m', 'h', 'rho', 'p', 'pa_to_split']
+        props = ['m', 'h', 'rho', 'p']
         pa.add_output_arrays(props)
         compute_initial_props([pa])
         return [pa]
@@ -95,7 +97,6 @@ class ParticleSplitTest(Application):
             kernel=kernel,
             dim=2,
             integrator=integrator,
-            #output_at_times=[0, 1e-4, 2e-4],
             dt=dt,
             tf=tf
             )
@@ -103,28 +104,39 @@ class ParticleSplitTest(Application):
 
     def create_equations(self):
         equations = [
+            Group(
+                equations=[
                     Group(
                         equations=[
-                             SummationDensity(dest='fluid',
-                                              sources=['fluid',]),
-                             ]
-                            ),
+                            DensityEvalNextIteration(dest='fluid', sources=['fluid',]),
+                            NonDimensionalDensityResidual(dest='fluid')
+                            ]),
                     Group(
                         equations=[
-                            UpdateSmoothingLength(h0, dim, dest='fluid'),
+                            UpdateSmoothingLength(h0, dim, dest='fluid')
                             ], update_nnps=True
                         ),
                     Group(
                         equations=[
-                            SWEOS(dest='fluid'),
-                            ]
-                        ),
-                    Group(
-                        equations=[
-                            CheckForParticlesToSplit(dest='fluid', A_max=2900)
+                            DensityResidualL2Error(self.particles, dest='fluid'),
+                            CheckConvergenceDensityResidual(dest='fluid')
                             ],
-                        ),
-                    ]
+                    )], iterate=True, max_iterations=100
+            ),
+            Group(
+                equations=[
+                    CorrectionFactorVariableSmoothingLength(dest='fluid',
+                                                            sources=['fluid',]),
+            ]),
+            Group(
+                equations=[
+                    SWEOS(dest='fluid'),
+                    ParticleAccelerations(dim, dest='fluid', sources=['fluid',],
+                                         ),
+                    CheckForParticlesToSplit(dest='fluid', A_max=2900)
+                    ],
+                ),
+            ]
         return equations
 
     def pre_step(self, solver):
@@ -135,31 +147,19 @@ class ParticleSplitTest(Application):
         self.nnps.update()
 
 
-
-
 def compute_initial_props(particles):
     one_time_equations = [
                 Group(
                     equations=[
-                        SummationDensity(dest='fluid', sources=['fluid',]),
-                            ]
-                    ),
-                Group(
-                    equations=[
-                        UpdateSmoothingLength(h0, dim, dest='fluid'),
-                        ], update_nnps=True
-                    ),
-                Group(
-                    equations=[
+                        InitialTimeSummationDensity(dest='fluid', sources=['fluid',]),
                         SWEOS(dest='fluid'),
-                        ]
-                    ),
+                            ], update_nnps=False
+                    )
             ]
     kernel = CubicSpline(dim=2)
     sph_eval = SPHEvaluator(particles, one_time_equations, dim=2,
                             kernel=kernel)
     sph_eval.evaluate()
-
 
 
 if __name__ == '__main__':
