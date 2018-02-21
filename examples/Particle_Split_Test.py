@@ -152,7 +152,7 @@ class ParticleSplitTest(Application):
     def post_process(self):
         rho_exact = 1e4
         rho_num = self.particles[0].rho
-        # Filter values to get rho >= 10000, ignoring boundary values
+        # Filter values of rho, ignoring values of boundary particles
         rho_num = rho_num[rho_num >= 10000]
         print('\nMax rho is %0.3f '%max(rho_num))
         l2_err_rho = sqrt(np.sum((rho_exact - rho_num)**2)
