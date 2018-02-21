@@ -20,6 +20,9 @@ from pysph.sph.SWE.basic_equations import *
 # PySPH Evaluator
 from pysph.tools.sph_evaluator import SPHEvaluator
 
+# PySPH Interpolator
+from pysph.tools.interpolator import Interpolator
+
 
 # Constants
 rho_w = 10000.0
@@ -29,15 +32,6 @@ d = 1.0
 dx = 50
 h0 = hdx * dx
 dim = 2
-
-
-class SummationDensity(Equation):
-    def initialize(self, d_idx, d_rho):
-        d_rho[d_idx] = 0.0
-
-    def loop(self, d_idx, d_rho, s_idx, s_m, WI):
-        d_rho[d_idx] += s_m[s_idx] * WI
-
 
 
 class ParticleSplitTest(Application):
@@ -56,18 +50,27 @@ class ParticleSplitTest(Application):
         h = ones_like(x) * h0
 
         rho = ones_like(x) * rho_w
+        rho0 = ones_like(x) * rho_w
+        rho_prev_iter = zeros_like(x)
+        rho_residual= zeros_like(x)
+        positive_rho_residual = zeros_like(x)
+        summation_rho = zeros_like(x)
+
         A = m / rho
         A[idx_inner_pa_to_split] = 3000
-        rho0 = ones_like(x) * rho_w
 
         dw = ones_like(x) * d
         p = ones_like(x) * 0.5 * rho_w * g * d**2
 
         pa_to_split = zeros_like(x)
-        alpha = ones_like(x)
+        alpha = zeros_like(x)
+        psi = zeros_like(x)
+        l2_err_rho_residual = zeros_like(x)
         cs = ones_like(x)
         dt_cfl = ones_like(x)
 
+        tv = zeros_like(x)
+        tu = zeros_like(x)
 
         u = zeros_like(x)
         u_prev_iter = zeros_like(x)
@@ -77,10 +80,12 @@ class ParticleSplitTest(Application):
         au = zeros_like(x)
         av = zeros_like(x)
 
-        pa = gpa(x=x, y=y, m=m, A=A, u=u, v=v, au=au, av=av,
-                pa_to_split=pa_to_split, rho=rho, rho0=rho0, h=h, p=p, dw=dw,
-                u_prev_iter=u_prev_iter, v_prev_iter=v_prev_iter, cs=cs,
-                dt_cfl=dt_cfl, alpha=alpha, name='fluid')
+        pa = gpa(x=x, y=y, m=m, rho0=rho0, rho=rho, alpha=alpha,
+                rho_prev_iter=rho_prev_iter, psi=psi,
+                l2_err_rho_residual=l2_err_rho_residual, h=h, u=u, v=v,
+                u_prev_iter=u_prev_iter, v_prev_iter=v_prev_iter, au=au, av=av,
+                A=A, cs=cs, dt_cfl=dt_cfl, tv=tv, tu=tu, p=p, dw=dw,
+                pa_to_split=pa_to_split, name='fluid')
 
         props = ['m', 'h', 'rho', 'p']
         pa.add_output_arrays(props)
@@ -90,12 +95,11 @@ class ParticleSplitTest(Application):
     def create_solver(self):
         kernel = CubicSpline(dim=2)
         integrator = EulerIntegrator(fluid=EulerStep())
-        dt = 1e-4; tf = 2e-4
+        dt = 1e-4; tf = 1e-4
         solver = Solver(
             kernel=kernel,
             dim=2,
             integrator=integrator,
-            #output_at_times=[0, 1e-4, 2e-4],
             dt=dt,
             tf=tf
             )
@@ -103,57 +107,67 @@ class ParticleSplitTest(Application):
 
     def create_equations(self):
         equations = [
+            Group(
+                equations=[
                     Group(
                         equations=[
-                            CheckForParticlesToSplit(dest='fluid', A_max=2900)
-                            ],
-                        ),
+                            DensityEvalNextIteration(dest='fluid', sources=['fluid',]),
+                            NonDimensionalDensityResidual(dest='fluid')
+                            ]),
                     Group(
                         equations=[
-                                SummationDensity(dest='fluid',
-                                                 sources=['fluid',]),
-                                ]
-                            ),
-                    Group(
-                        equations=[
-                            UpdateSmoothingLength(h0, dim, dest='fluid'),
+                            UpdateSmoothingLength(h0, dim, dest='fluid')
                             ], update_nnps=True
                         ),
                     Group(
                         equations=[
-                            SWEOS(dest='fluid'),
-                            ]
-                        ),
-                    ]
+                            DensityResidualL2Error(self.particles, dest='fluid'),
+                            CheckConvergenceDensityResidual(dest='fluid')
+                            ],
+                    )], iterate=True, max_iterations=100
+            ),
+            Group(
+                equations=[
+                    CorrectionFactorVariableSmoothingLength(dest='fluid',
+                                                            sources=['fluid',]),
+            ]),
+            Group(
+                equations=[
+                    SWEOS(dest='fluid'),
+                    ParticleAccelerations(dim, dest='fluid', sources=['fluid',],
+                                         ),
+                    CheckForParticlesToSplit(dest='fluid', A_max=2900)
+                    ],
+                ),
+            ]
         return equations
 
-    def post_step(self, solver):
+    def pre_step(self, solver):
         for pa in self.particles:
             ps = ParticleSplit(pa)
             ps.do_particle_split()
         self.particles[0].A = ones(len(self.particles[0].A)) * 2500
         self.nnps.update()
 
-
+    def post_process(self):
+        rho_exact = 1e4
+        rho_num = self.particles[0].rho
+        # Filter values of rho, ignoring values of boundary particles
+        rho_num = rho_num[rho_num >= 10000]
+        print('\nMax rho is %0.3f '%max(rho_num))
+        l2_err_rho = sqrt(np.sum((rho_exact - rho_num)**2)
+                          / len(rho_num))
+        print('L2 error in density is %0.3f \n'%l2_err_rho)
 
 
 def compute_initial_props(particles):
     one_time_equations = [
                 Group(
                     equations=[
-                            SummationDensity(dest='fluid', sources=['fluid',]),
-                            ]
-                    ),
-                Group(
-                    equations=[
-                        UpdateSmoothingLength(h0, dim, dest='fluid'),
-                        ], update_nnps=True
-                    ),
-                Group(
-                    equations=[
+                        InitialTimeSummationDensity(dest='fluid', sources=['fluid',]),
                         SWEOS(dest='fluid'),
-                        ]
-                    ),
+                            ], update_nnps=False
+                    )
             ]
     kernel = CubicSpline(dim=2)
     sph_eval = SPHEvaluator(particles, one_time_equations, dim=2,
@@ -161,7 +175,7 @@ def compute_initial_props(particles):
     sph_eval.evaluate()
 
 
-
 if __name__ == '__main__':
     app = ParticleSplitTest()
     app.run()
+    app.post_process()
