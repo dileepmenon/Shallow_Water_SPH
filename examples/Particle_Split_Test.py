@@ -15,7 +15,7 @@ from pysph.sph.integrator_step import IntegratorStep
 
 # PySPH equations
 from pysph.sph.equation import Group
-from pysph.sph.SWE.basic_equations import *
+from equation.SWE import *
 
 # PySPH Evaluator
 from pysph.tools.sph_evaluator import SPHEvaluator
