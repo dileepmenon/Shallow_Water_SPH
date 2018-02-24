@@ -216,15 +216,6 @@ class NonDimensionalDensityResidual(Equation):
         d_psi[d_idx] = abs(d_rho[d_idx]-d_rho_prev_iter[d_idx]) / d_rho[d_idx]
 
 
-class DensityResidualL2Error(Equation):
-    def __init__(self, pa_arrays, dest, sources=None):
-        self.num_pa = 5000 # Change
-        super(DensityResidualL2Error, self).__init__(dest, sources)
-
-    def post_loop(self, d_l2_err_rho_residual, d_psi, d_idx):
-        d_l2_err_rho_residual[d_idx] = sqrt(d_psi[d_idx]**2 / self.num_pa)
-
-
 class CheckConvergenceDensityResidual(Equation):
     def __init__(self, dest, sources=None):
         super(CheckConvergenceDensityResidual, self).__init__(dest, sources)
@@ -234,7 +225,10 @@ class CheckConvergenceDensityResidual(Equation):
         self.eqn_has_converged = 0
 
     def reduce(self, dst):
-        epsilon = serial_reduce_array(dst.l2_err_rho_residual, 'sum')
+        dst.tmp_comp[0] = serial_reduce_array(dst.psi > 0.0, 'sum')
+        dst.tmp_comp[1] = serial_reduce_array(dst.psi**2, 'sum')
+        dst.tmp_comp.set_data(parallel_reduce_array(dst.tmp_comp, 'sum'))
+        epsilon = sqrt(dst.tmp_comp[1] / dst.tmp_comp[0])
         print(epsilon)
         if epsilon <= 1e-3:
             print('Converged')
