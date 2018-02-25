@@ -2,6 +2,7 @@ from pysph.sph.equation import Equation
 from pysph.sph.integrator_step import IntegratorStep
 from pysph.sph.integrator import Integrator
 from pysph.base.utils import get_particle_array
+from pysph.base.reduce_array import serial_reduce_array, parallel_reduce_array
 from numpy import sqrt, cos, sin, ones, zeros, pi
 import numpy as np
 
@@ -225,9 +226,10 @@ class CheckConvergenceDensityResidual(Equation):
         self.eqn_has_converged = 0
 
     def reduce(self, dst):
-        dst.tmp_comp[0] = serial_reduce_array(dst.psi > 0.0, 'sum')
+        dst.tmp_comp[0] = serial_reduce_array(dst.psi >= 0.0, 'sum')
         dst.tmp_comp[1] = serial_reduce_array(dst.psi**2, 'sum')
-        dst.tmp_comp.set_data(parallel_reduce_array(dst.tmp_comp, 'sum'))
+        dst.get_carray('tmp_comp').set_data(parallel_reduce_array(dst.tmp_comp, 
+                                                                  'sum'))
         epsilon = sqrt(dst.tmp_comp[1] / dst.tmp_comp[0])
         print(epsilon)
         if epsilon <= 1e-3:
