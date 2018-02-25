@@ -80,12 +80,14 @@ class ParticleSplitTest(Application):
         au = zeros_like(x)
         av = zeros_like(x)
 
+        consts = {'tmp_comp': [0.0, 0.0]}
+
         pa = gpa(x=x, y=y, m=m, rho0=rho0, rho=rho, alpha=alpha,
-                rho_prev_iter=rho_prev_iter, psi=psi,
-                l2_err_rho_residual=l2_err_rho_residual, h=h, u=u, v=v,
-                u_prev_iter=u_prev_iter, v_prev_iter=v_prev_iter, au=au, av=av,
-                A=A, cs=cs, dt_cfl=dt_cfl, tv=tv, tu=tu, p=p, dw=dw,
-                pa_to_split=pa_to_split, name='fluid')
+                 rho_prev_iter=rho_prev_iter, psi=psi,
+                 h=h, u=u, v=v, u_prev_iter=u_prev_iter,
+                 v_prev_iter=v_prev_iter, au=au, av=av, A=A, cs=cs,
+                 dt_cfl=dt_cfl, tv=tv, tu=tu, p=p, dw=dw,
+                 pa_to_split=pa_to_split, name='fluid', constants=consts)
 
         props = ['m', 'h', 'rho', 'p']
         pa.add_output_arrays(props)
@@ -121,7 +123,6 @@ class ParticleSplitTest(Application):
                         ),
                     Group(
                         equations=[
-                            DensityResidualL2Error(self.particles, dest='fluid'),
                             CheckConvergenceDensityResidual(dest='fluid')
                             ],
                     )], iterate=True, max_iterations=100
