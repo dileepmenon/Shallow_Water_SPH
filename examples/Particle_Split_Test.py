@@ -167,6 +167,7 @@ def compute_initial_props(particles):
                     equations=[
                         InitialTimeSummationDensity(dest='fluid', sources=['fluid',]),
                         SWEOS(dest='fluid'),
+                        CheckForParticlesToSplit(dest='fluid', A_max=2900)
                             ], update_nnps=False
                     )
             ]
