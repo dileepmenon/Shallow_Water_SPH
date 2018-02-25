@@ -200,7 +200,16 @@ class SWEIntegrator(Integrator):
         self.do_post_stage(dt, 2)
 
 
-class DensityEvalNextIteration(Equation):
+class GatherDensityEvalNextIteration(Equation):
+    def initialize(self, d_rho, d_idx, d_rho_prev_iter):
+        d_rho_prev_iter[d_idx] = d_rho[d_idx]
+        d_rho[d_idx] = 0.0
+
+    def loop(self, d_rho, d_idx, s_m, s_idx, WI):
+        d_rho[d_idx] += s_m[s_idx] * WI
+
+
+class ScatterDensityEvalNextIteration(Equation):
     def initialize(self, d_rho, d_idx, d_rho_prev_iter):
         d_rho_prev_iter[d_idx] = d_rho[d_idx]
         d_rho[d_idx] = 0.0

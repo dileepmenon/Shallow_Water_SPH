@@ -113,7 +113,7 @@ class ParticleSplitTest(Application):
                 equations=[
                     Group(
                         equations=[
-                            DensityEvalNextIteration(dest='fluid', sources=['fluid',]),
+                            ScatterDensityEvalNextIteration(dest='fluid', sources=['fluid',]),
                             NonDimensionalDensityResidual(dest='fluid')
                             ]),
                     Group(
