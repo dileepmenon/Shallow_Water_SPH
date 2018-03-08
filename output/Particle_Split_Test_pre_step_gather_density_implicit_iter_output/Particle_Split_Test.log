@@ -1123,3 +1123,38 @@ INFO|2018-02-26 01:54:07,577|pysph.solver.application|Setup took: 8.53164 secs
 INFO|2018-02-26 01:54:07,578|pysph.solver.solver|Writing output at time 0, iteration 0, dt = 0.0001
 INFO|2018-02-26 01:54:07,651|pysph.solver.solver|Writing output at time 0.0001, iteration 1, dt = 0.0001
 INFO|2018-02-26 01:54:07,661|pysph.solver.application|Run took: 0.08335 secs
+INFO|2018-03-09 00:40:11,820|pysph.solver.application|Running on Dileeps-MacBook-Air.local with address 169.254.197.186
+INFO|2018-03-09 00:40:11,974|pysph.solver.application|Generating output in /Users/dileep/Desktop/Shallow_Water_SPH/output/Particle_Split_Test_pre_step_gather_density_implicit_iter_output
+INFO|2018-03-09 00:40:11,975|pysph.solver.solver|Using equations:
+----------------------------------------------------------------------
+[
+Group(equations=[
+Group(equations=[
+GatherDensityEvalNextIteration(dest='fluid', sources=['fluid'])
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+NonDimensionalDensityResidual(dest='fluid', sources=None)
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+UpdateSmoothingLength(h0=60.0, dim=2, dest='fluid', sources=None)
+    ],
+    real=True, update_nnps=True, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+CheckConvergenceDensityResidual(dest='fluid', sources=None)
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0)
+    ],
+    real=True, update_nnps=False, iterate=True, max_iterations=100, min_iterations=0)
+]
+----------------------------------------------------------------------
+INFO|2018-03-09 00:40:11,975|pysph.solver.solver|Using integrator:
+----------------------------------------------------------------------
+  EulerIntegrator(fluid=EulerStep())
+----------------------------------------------------------------------
+INFO|2018-03-09 00:40:12,149|pysph.solver.application|started multiprocessing interface on ('0.0.0.0', 8800)
+INFO|2018-03-09 00:40:12,150|pysph.solver.application|Setup took: 0.33308 secs
+INFO|2018-03-09 00:40:12,153|pysph.solver.solver|Writing output at time 0, iteration 0, dt = 0.0001
+INFO|2018-03-09 00:40:12,214|pysph.solver.solver|Writing output at time 0.0001, iteration 1, dt = 0.0001
+INFO|2018-03-09 00:40:12,222|pysph.solver.application|Run took: 0.06909 secs

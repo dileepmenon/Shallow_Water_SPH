@@ -1315,3 +1315,38 @@ INFO|2018-02-26 00:38:04,684|pysph.solver.application|Setup took: 6.89845 secs
 INFO|2018-02-26 00:38:04,686|pysph.solver.solver|Writing output at time 0, iteration 0, dt = 0.0001
 INFO|2018-02-26 00:38:04,799|pysph.solver.solver|Writing output at time 0.0001, iteration 1, dt = 0.0001
 INFO|2018-02-26 00:38:04,806|pysph.solver.application|Run took: 0.12028 secs
+INFO|2018-03-09 00:39:12,870|pysph.solver.application|Running on Dileeps-MacBook-Air.local with address 169.254.197.186
+INFO|2018-03-09 00:39:13,037|pysph.solver.application|Generating output in /Users/dileep/Desktop/Shallow_Water_SPH/output/Particle_Split_Test_pre_step_scatter_density_implicit_iter_output
+INFO|2018-03-09 00:39:13,038|pysph.solver.solver|Using equations:
+----------------------------------------------------------------------
+[
+Group(equations=[
+Group(equations=[
+ScatterDensityEvalNextIteration(dest='fluid', sources=['fluid'])
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+NonDimensionalDensityResidual(dest='fluid', sources=None)
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+UpdateSmoothingLength(h0=60.0, dim=2, dest='fluid', sources=None)
+    ],
+    real=True, update_nnps=True, iterate=False, max_iterations=1, min_iterations=0),
+Group(equations=[
+CheckConvergenceDensityResidual(dest='fluid', sources=None)
+    ],
+    real=True, update_nnps=False, iterate=False, max_iterations=1, min_iterations=0)
+    ],
+    real=True, update_nnps=False, iterate=True, max_iterations=100, min_iterations=0)
+]
+----------------------------------------------------------------------
+INFO|2018-03-09 00:39:13,038|pysph.solver.solver|Using integrator:
+----------------------------------------------------------------------
+  EulerIntegrator(fluid=EulerStep())
+----------------------------------------------------------------------
+INFO|2018-03-09 00:39:13,217|pysph.solver.application|started multiprocessing interface on ('0.0.0.0', 8800)
+INFO|2018-03-09 00:39:13,218|pysph.solver.application|Setup took: 0.51150 secs
+INFO|2018-03-09 00:39:13,221|pysph.solver.solver|Writing output at time 0, iteration 0, dt = 0.0001
+INFO|2018-03-09 00:39:13,257|pysph.solver.solver|Writing output at time 0.0001, iteration 1, dt = 0.0001
+INFO|2018-03-09 00:39:13,265|pysph.solver.application|Run took: 0.04453 secs
