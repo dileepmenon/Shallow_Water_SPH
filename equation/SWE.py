@@ -493,18 +493,18 @@ class DaughterVelocityEval(Equation):
 
 
 class ParticleAccelerations(Equation):
-    def __init__(self, dim, dest, sources, dhxi=0, dhyi=0, dhxxi=0,
-                 dhxyi=0, dhyyi=0, u_only=False, v_only=False):
+    def __init__(self, dim, dest, sources, bx=0, by=0, bxx=0,
+                 bxy=0, byy=0, u_only=False, v_only=False):
         super(ParticleAccelerations, self).__init__(dest, sources)
         self.g = 9.81
         self.rhow = 1000.0
-        self.ct = self.g/(2*self.rhow)
+        self.ct = self.g / (2*self.rhow)
         self.dim = dim
-        self.dhxi = dhxi
-        self.dhyi = dhyi
-        self.dhxxi = dhxxi
-        self.dhxyi = dhxyi
-        self.dhyyi = dhyyi
+        self.bx = bx
+        self.by = by
+        self.bxx = bxx
+        self.bxy = bxy
+        self.byy = byy
         self.u_only = u_only
         self.v_only = v_only
 
@@ -512,25 +512,78 @@ class ParticleAccelerations(Equation):
         d_tu[d_idx] = 0.0
         d_tv[d_idx] = 0.0
 
-    def loop(self, d_x, d_y, d_rho , d_idx , s_m , s_idx , s_rho , d_m ,
-             DWI ,DWJ , d_au, d_av , s_alpha , d_alpha , s_p , d_p , d_tu ,
-             s_tu, d_tv , s_tv):
+    def loop(self, d_x, d_y, d_rho, d_idx, s_m, s_idx, s_rho, d_m,
+             DWI, DWJ, d_au, d_av, s_alpha, d_alpha, s_p, d_p, d_tu,
+             s_tu, d_tv, s_tv):
         tmp1 = (s_rho[s_idx]*self.dim) / s_alpha[s_idx]
         tmp2 = (d_rho[d_idx]*self.dim) / d_alpha[d_idx]
         d_tu[d_idx] += s_m[s_idx] * self.ct * (tmp1*DWJ[0] + tmp2*DWI[0])
         d_tv[d_idx] += s_m[s_idx] * self.ct * (tmp1*DWJ[1] + tmp2*DWI[1])
 
-    def post_loop(self, t, dt, d_x ,d_y,d_idx ,d_u ,d_v ,d_tu ,d_tv ,d_au, d_av):
-        dhxi =  self.dhxi ; dhyi = self.dhyi
-        dhxxi = self.dhxxi; dhxyi = self.dhxyi
-        dhyyi = self.dhyyi;
-        vikivi = d_u[d_idx]*d_u[d_idx]*dhxxi + 2*d_u[d_idx]*d_v[d_idx]*dhxyi + \
-                 d_v[d_idx]*d_v[d_idx]*dhyyi
-        tidotdhi = d_tu[d_idx]*dhxi + d_tv[d_idx]*dhyi
-        dhidotdhi = dhxi**2 + dhyi**2
-        temp3 = self.g + vikivi - tidotdhi
-        temp4 = 1 +  dhidotdhi
+    def post_loop(self, d_idx, d_u, d_v, d_tu, d_tv, d_au, d_av, d_Sfx, d_Sfy):
+        bx =  self.bx; by = self.by
+        bxx = self.bxx; bxy = self.bxy
+        byy = self.byy
+        vikivi = d_u[d_idx]*d_u[d_idx]*bxx + 2*d_u[d_idx]*d_v[d_idx]*bxy + \
+                 d_v[d_idx]*d_v[d_idx]*byy
+        tidotgradbi = d_tu[d_idx]*bx + d_tv[d_idx]*by
+        gradbidotgradbi = bx**2 + by**2
+        temp3 = self.g + vikivi - tidotgradbi
+        temp4 = 1 + gradbidotgradbi
         if not self.v_only:
-            d_au[d_idx] = -(temp3/temp4)*dhxi - d_tu[d_idx]
+            d_au[d_idx] = -(temp3/temp4)*bx - d_tu[d_idx] + d_Sfx[d_idx]
         if not self.u_only:
-            d_av[d_idx] = -(temp3/temp4)*dhyi - d_tv[d_idx]
+            d_av[d_idx] = -(temp3/temp4)*by - d_tv[d_idx] + d_Sfy[d_idx]
+
+
+class BedElevation(Equation):
+    def initialize(self, d_b, d_idx):
+        d_b[d_idx] = 0.0
+
+    def loop(self, d_b, d_idx, s_b, s_idx, WJ, s_V):
+        d_b[d_idx] += s_b[s_idx] * WJ * s_V[s_idx]
+
+
+class BedGradient(Equation):
+    def initialize(self, d_bx, d_by, d_idx):
+        d_bx[d_idx] = 0.0
+        d_by[d_idx] = 0.0
+
+    def loop(self, d_bx, d_by, d_idx, s_b, s_idx, DWJ, s_V):
+        d_bx[d_idx] += s_b[s_idx] * DWJ[0] * s_V[s_idx]
+        d_by[d_idx] += s_b[s_idx] * DWJ[1] * s_V[s_idx]
+
+
+class BedCurvature(Equation):
+    def initialize(self, d_bxx, d_bxy, d_byy, d_idx):
+        d_bxx[d_idx] = 0.0
+        d_bxy[d_idx] = 0.0
+        d_byy[d_idx] = 0.0
+
+    def loop(self, d_bxx, d_bxy, d_byy, d_b, d_idx, s_h, s_b, s_idx, XIJ, RIJ,
+             DWJ, s_V):
+        eta = 0.01 * s_h[s_idx]
+        temp1 = (d_b[d_idx]-s_b[s_idx]) / (RIJ**2+eta**2)
+        temp2 = XIJ[0]*DWJ[0] + XIJ[1]*DWJ[1]
+        temp_bxx = ((4*XIJ[0]**2/RIJ**2)-1) * temp1
+        temp_bxy = ((4*XIJ[0]*XIJ[1]/RIJ**2)-1) * temp1
+        temp_byy = ((4*XIJ[1]**2/RIJ**2)-1) * temp1
+        d_bxx += temp_bxx * temp2 * s_V[s_idx]
+        d_bxy += temp_bxy * temp2 * s_V[s_idx]
+        d_byy += temp_byy * temp2 * s_V[s_idx]
+
+
+class BedFrictionSourceEval(Equation):
+    def __init__(self, dest, sources):
+        self.g = 9.8
+
+    def initialize(self, d_n, d_idx):
+        d_n[d_idx] = 0.0
+
+    def loop(self, d_n, d_idx, s_n, s_idx, WJ, s_V):
+        d_n[d_idx] += s_n[s_idx] * WJ * s_V[s_idx]
+
+    def post_loop(self, d_Sfx, d_Sfy, d_u, d_v, d_n, d_dw):
+        vmag = sqrt(d_u[d_idx]**2 + d_v[d_idx]**2)
+        d_Sfx[d_idx] = d_u[d_idx] * ((self.g*d_n[d_idx]**2*vmag)/d_dw[d_idx])
+        d_Sfy[d_idx] = d_v[d_idx] * ((self.g*d_n[d_idx]**2*vmag)/d_dw[d_idx])
