@@ -562,15 +562,16 @@ class BedCurvature(Equation):
 
     def loop(self, d_bxx, d_bxy, d_byy, d_b, d_idx, s_h, s_b, s_idx, XIJ, RIJ,
              DWJ, s_V):
-        eta = 0.01 * s_h[s_idx]
-        temp1 = (d_b[d_idx]-s_b[s_idx]) / (RIJ**2+eta**2)
-        temp2 = XIJ[0]*DWJ[0] + XIJ[1]*DWJ[1]
-        temp_bxx = ((4*XIJ[0]**2/RIJ**2)-1) * temp1
-        temp_bxy = ((4*XIJ[0]*XIJ[1]/RIJ**2)-1) * temp1
-        temp_byy = ((4*XIJ[1]**2/RIJ**2)-1) * temp1
-        d_bxx += temp_bxx * temp2 * s_V[s_idx]
-        d_bxy += temp_bxy * temp2 * s_V[s_idx]
-        d_byy += temp_byy * temp2 * s_V[s_idx]
+        if RIJ > 1e-6:
+            eta = 0.01 * s_h[s_idx]
+            temp1 = (d_b[d_idx]-s_b[s_idx]) / (RIJ**2+eta**2)
+            temp2 = XIJ[0]*DWJ[0] + XIJ[1]*DWJ[1]
+            temp_bxx = ((4*XIJ[0]**2/RIJ**2)-1) * temp1
+            temp_bxy = ((4*XIJ[0]*XIJ[1]/RIJ**2)-1) * temp1
+            temp_byy = ((4*XIJ[1]**2/RIJ**2)-1) * temp1
+            d_bxx += temp_bxx * temp2 * s_V[s_idx]
+            d_bxy += temp_bxy * temp2 * s_V[s_idx]
+            d_byy += temp_byy * temp2 * s_V[s_idx]
 
 
 class BedFrictionSourceEval(Equation):
