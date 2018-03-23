@@ -14,11 +14,13 @@ def get_particle_array_swe(constants=None, **props):
 
     This sets the default properties to be::
 
-        ['x', 'y', 'z', 'u', 'v', 'w', 'h', 'rho', 'm', 'p',
-         'A', 'cs', 'rho0', 'rho_prev_iter', 'rho_residual',
-         'positive_rho_residual', 'summation_rho', 'd', 'alpha',
-         'exp_lambda', 'tv', 'tu', 'u_prev_iter', 'v_prev_iter',
-         'uh', 'vh', 'dt_cfl', 'pa_to_split']
+        ['x', 'y', 'z', 'u', 'v', 'w', 'h', 'rho', 'm', 'p', 'V',
+         'A', 'cs', 'n', 'rho0', 'rho_prev_iter', 'rho_residual',
+         'positive_rho_residual', 'summation_rho', 'dw', 'alpha',
+         'exp_lambda', 'tv', 'tu', 'au', 'av', 'u_prev_iter',
+         'v_prev_iter', 'uh', 'vh', 'dt_cfl', 'pa_to_split', 'Sfx',
+         'Sfy', 'psi', 'sum_Ak', 'u_parent', v_parent', 'parent_idx'
+         'b', 'bx', 'by', 'bxx', 'bxy', byy', 'closest_idx', 'merge']
 
     Parameters
     ----------
@@ -36,26 +38,29 @@ def get_particle_array_swe(constants=None, **props):
 
     """
 
-    swe_props = ['A', 'cs', 'rho0', 'rho_prev_iter', 'rho_residual',
-                 'positive_rho_residual', 'summation_rho', 'd', 'alpha',
+    swe_props = ['A', 'cs', 'n', 'rho0', 'rho_prev_iter', 'rho_residual',
+                 'positive_rho_residual', 'summation_rho', 'dw', 'alpha',
                  'exp_lambda', 'tv', 'tu', 'u_prev_iter', 'v_prev_iter',
-                 'uh', 'vh', 'dt_cfl', 'pa_to_split']
+                 'uh', 'vh', 'dt_cfl', 'pa_to_split', 'Sfx', 'Sfy', 'V',
+                 'psi', 'sum_Ak', 'u_parent', 'v_parent', 'closest_idx'
+                 'b', 'bx', 'by', 'bxx', 'bxy', 'byy', 'merge']
 
     pa = get_particle_array(
         constants=constants, additional_props=swe_props, **props
     )
+    pa.add_property('parent_idx', type='int')
 
     # default property arrays to save out.
-    pa.set_output_arrays([
-        'x', 'y', 'u', 'v', 'rho', 'm', 'h', 'A', 'cs',
-        'd', 'p', 'au', 'av', 'pid', 'gid', 'tag'
-    ])
+    props = ['x', 'y', 'h', 'rho', 'p', 'A', 'uh', 'vh', 'u', 'v', 'm', 'tu',
+             'tv', 'dw', 'alpha', 'au', 'av', 'Sfx', 'Sfy', 'n', 'cs', 'pid',
+             'gid', 'tag']
+    pa.set_output_arrays(props)
 
     return pa
 
 
 class CheckForParticlesToSplit(Equation):
-    def __init__(self, dest, h_max, A_max=1e9):
+    def __init__(self, dest, h_max=1e9, A_max=1e9):
         self.A_max = A_max
         self.h_max = h_max
         super(CheckForParticlesToSplit, self).__init__(dest, None)
@@ -178,7 +183,7 @@ class FindMergeable(Equation):
                 continue
             xij = xi - s_x[s_idx]
             yij = yi - s_y[s_idx]
-            rij = xij*xij + yij*yij
+            rij = sqrt(xij*xij + yij*yij)
             if rij < rmin and (d_A[d_idx] < self.A_min
                                or d_A[s_idx] < self.A_min):
                 closest = s_idx
@@ -230,7 +235,7 @@ class InitialDensityEvalAfterMerge(Equation):
                 s_idx = NBRS[i]
                 xij[0] = d_x[d_idx] - s_x[s_idx]
                 xij[1] = d_y[d_idx] - s_y[s_idx]
-                rij = sqrt(xij[0]*xij[0], xij[1]*xij[1])
+                rij = sqrt(xij[0]*xij[0] + xij[1]*xij[1])
                 rho_sum += s_m[s_idx] * KERNEL.kernel(xij, rij, s_h[s_idx])
             d_rho[d_idx] += rho_sum
 
@@ -250,9 +255,13 @@ class EulerStep(IntegratorStep):
 
 class SWEStep(IntegratorStep):
     """Predictor corrector Integrator for Shallow Water problems"""
-    def initialize(self, d_u, d_v, d_u_prev_iter, d_v_prev_iter, d_idx):
+    def initialize(self, t, d_u, d_v, d_uh, d_vh, d_u_prev_iter, d_v_prev_iter,
+                   d_idx):
         d_u_prev_iter[d_idx] = d_u[d_idx]
         d_v_prev_iter[d_idx] = d_v[d_idx]
+        if d_uh[d_idx] == 0.0 and d_vh[d_idx] == 0.0:
+            d_uh[d_idx] = d_u[d_idx]
+            d_vh[d_idx] = d_v[d_idx]
 
     def stage1(self, d_uh, d_vh, d_idx, d_au, d_av, dt):
         d_uh[d_idx] +=  dt * d_au[d_idx]
@@ -531,17 +540,18 @@ class ParticleAccelerations(Equation):
         temp3 = self.g + vikivi - tidotgradbi
         temp4 = 1 + gradbidotgradbi
         if not self.v_only:
-            d_au[d_idx] = -(temp3/temp4)*bx - d_tu[d_idx] + d_Sfx[d_idx]
+            d_au[d_idx] = -(temp3/temp4)*bx - d_tu[d_idx] - d_Sfx[d_idx]
         if not self.u_only:
-            d_av[d_idx] = -(temp3/temp4)*by - d_tv[d_idx] + d_Sfy[d_idx]
+            d_av[d_idx] = -(temp3/temp4)*by - d_tv[d_idx] - d_Sfy[d_idx]
 
 
 class BedElevation(Equation):
     def initialize(self, d_b, d_idx):
         d_b[d_idx] = 0.0
 
-    def loop(self, d_b, d_idx, s_b, s_idx, WJ, s_V):
-        d_b[d_idx] += s_b[s_idx] * WJ * s_V[s_idx]
+    def loop(self, d_b, d_idx, s_b, s_idx, WJ, s_V, RIJ):
+        if RIJ > 1e-6:
+            d_b[d_idx] += s_b[s_idx] * WJ * s_V[s_idx]
 
 
 class BedGradient(Equation):
@@ -549,9 +559,10 @@ class BedGradient(Equation):
         d_bx[d_idx] = 0.0
         d_by[d_idx] = 0.0
 
-    def loop(self, d_bx, d_by, d_idx, s_b, s_idx, DWJ, s_V):
-        d_bx[d_idx] += s_b[s_idx] * DWJ[0] * s_V[s_idx]
-        d_by[d_idx] += s_b[s_idx] * DWJ[1] * s_V[s_idx]
+    def loop(self, d_bx, d_by, d_idx, s_b, s_idx, DWJ, s_V, RIJ):
+        if RIJ > 1e-6:
+            d_bx[d_idx] += s_b[s_idx] * DWJ[0] * s_V[s_idx]
+            d_by[d_idx] += s_b[s_idx] * DWJ[1] * s_V[s_idx]
 
 
 class BedCurvature(Equation):
@@ -577,14 +588,85 @@ class BedCurvature(Equation):
 class BedFrictionSourceEval(Equation):
     def __init__(self, dest, sources):
         self.g = 9.8
+        super(BedFrictionSourceEval, self).__init__(dest, sources)
 
     def initialize(self, d_n, d_idx):
         d_n[d_idx] = 0.0
 
-    def loop(self, d_n, d_idx, s_n, s_idx, WJ, s_V):
-        d_n[d_idx] += s_n[s_idx] * WJ * s_V[s_idx]
+    def loop(self, d_n, d_idx, s_n, s_idx, WJ, s_V, RIJ):
+        if RIJ > 1e-6:
+            d_n[d_idx] += s_n[s_idx] * WJ * s_V[s_idx]
 
-    def post_loop(self, d_Sfx, d_Sfy, d_u, d_v, d_n, d_dw):
+    def post_loop(self, d_idx, d_Sfx, d_Sfy, d_u, d_v, d_n, d_dw):
         vmag = sqrt(d_u[d_idx]**2 + d_v[d_idx]**2)
-        d_Sfx[d_idx] = d_u[d_idx] * ((self.g*d_n[d_idx]**2*vmag)/d_dw[d_idx])
-        d_Sfy[d_idx] = d_v[d_idx] * ((self.g*d_n[d_idx]**2*vmag)/d_dw[d_idx])
+        temp = (self.g*d_n[d_idx]**2*vmag) / d_dw[d_idx]**(4.0/3.0)
+        d_Sfx[d_idx] = d_u[d_idx] * temp
+        d_Sfy[d_idx] = d_v[d_idx] * temp
+
+
+
+class BoundaryInnerReimannStateEval(Equation):
+    def initialize(self, d_u_inner_reimann, d_v_inner_reimann,
+                   d_dw_inner_reimann, d_idx):
+        d_u_inner_reimann[d_idx] = 0.0
+        d_v_inner_reimann[d_idx] = 0.0
+        d_dw_inner_reimann[d_idx] = 0.0
+
+    def loop_all(self, d_shep_corr, d_x, d_y, d_idx, s_x, s_y, s_m, s_rho,
+                 s_idx, d_h, KERNEL, NBRS, N_NBRS):
+        i = declare('int')
+        xij = declare('matrix(3)')
+        rij = 0.0
+        corr_sum = 0.0
+        for i in range(N_NBRS):
+            s_idx = NBRS[i]
+            xij[0] = d_x[d_idx] - s_x[s_idx]
+            xij[1] = d_y[d_idx] - s_y[s_idx]
+            rij = sqrt(xij[0]*xij[0] + xij[1]*xij[1])
+            corr_sum += (s_m[s_idx]/s_rho[s_idx]) * KERNEL.kernel(xij, rij,
+                                                                  d_h[d_idx])
+        d_shep_corr[d_idx] = corr_sum
+
+    def loop(self, d_u_inner_reimann, d_v_inner_reimann, d_dw_inner_reimann,
+             d_shep_corr, d_idx, WI, s_m, s_u, s_v, s_rho, s_dw, s_idx):
+        tmp = (WI/d_shep_corr[d_idx]) * (s_m[s_idx]/s_rho[s_idx])
+        d_u_inner_reimann[d_idx] += s_u[s_idx] * tmp
+        d_v_inner_reimann[d_idx] += s_v[s_idx] * tmp
+        d_dw_inner_reimann[d_idx] += s_dw[s_idx] * tmp
+
+
+
+class SubCriticalInFlow(Equation):
+    def __init__(self, dest):
+        self.g = 9.8
+        super(SubCriticalInFlow, self).__init__(dest, None)
+
+    def post_loop(self, d_dw, d_dw_inner_reimann, d_u, d_u_inner_reimann,
+                  d_idx):
+        const = 1. / (2.*sqrt(self.g))
+        d_dw[d_idx] = (const*(d_u[d_idx] - d_u_inner_reimann[d_idx])
+                       + sqrt(d_dw_inner_reimann[d_idx]))**2
+
+
+
+class SubCriticalOutFlow(Equation):
+    def __init__(self, dest):
+        self.g = 9.8
+        super(SubCriticalOutFlow, self).__init__(dest, None)
+
+    def post_loop(self, d_dw, d_dw_inner_reimann, d_u, d_u_inner_reimann,
+                  d_v, d_v_inner_reimann, d_idx):
+        const = 2. * sqrt(self.g)
+        d_u[d_idx] = d_u_inner_reimann[d_idx] \
+                     + const*(sqrt(d_dw_inner_reimann[d_idx])
+                              - sqrt(d_dw[d_idx]))
+        d_v[d_idx] = d_v_inner_reimann[d_idx]
+
+
+
+class SuperCriticalOutFlow(Equation):
+    def post_loop(self, d_dw, d_dw_inner_reimann, d_u, d_u_inner_reimann,
+                  d_v, d_v_inner_reimann, d_idx):
+        d_u[d_idx] = d_u_inner_reimann[d_idx]
+        d_v[d_idx] = d_v_inner_reimann[d_idx]
+        d_dw[d_idx] = d_dw_inner_reimann[d_idx]
