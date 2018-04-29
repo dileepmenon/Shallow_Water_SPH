@@ -19,8 +19,11 @@ def get_particle_array_swe(constants=None, **props):
          'positive_rho_residual', 'summation_rho', 'dw', 'alpha',
          'exp_lambda', 'tv', 'tu', 'au', 'av', 'u_prev_iter',
          'v_prev_iter', 'uh', 'vh', 'dt_cfl', 'pa_to_split', 'Sfx',
-         'Sfy', 'psi', 'sum_Ak', 'u_parent', v_parent', 'parent_idx'
-         'b', 'bx', 'by', 'bxx', 'bxy', byy', 'closest_idx', 'merge']
+         'Sfy', 'psi', 'sum_Ak', 'u_parent', v_parent', 'parent_idx',
+         'b', 'bx', 'by', 'bxx', 'bxy', byy', 'closest_idx', 'merge',
+         'dw_inner_reimann', 'u_inner_reimann', 'v_inner_reimann',
+         'shep_corr']
+
 
     Parameters
     ----------
@@ -42,13 +45,20 @@ def get_particle_array_swe(constants=None, **props):
                  'positive_rho_residual', 'summation_rho', 'dw', 'alpha',
                  'exp_lambda', 'tv', 'tu', 'u_prev_iter', 'v_prev_iter',
                  'uh', 'vh', 'dt_cfl', 'pa_to_split', 'Sfx', 'Sfy', 'V',
-                 'psi', 'sum_Ak', 'u_parent', 'v_parent', 'closest_idx'
-                 'b', 'bx', 'by', 'bxx', 'bxy', 'byy', 'merge']
+                 'psi', 'sum_Ak', 'u_parent', 'v_parent', 'b', 'bx', 'by',
+                 'bxx', 'bxy', 'byy', 'merge', 'dw_inner_reimann',
+                 'u_inner_reimann', 'v_inner_reimann', 'shep_corr']
+
+    consts = {'tmp_comp': [0.0, 0.0]}
+    if constants:
+        for key, val in constants.items():
+            consts[key] = val
 
     pa = get_particle_array(
-        constants=constants, additional_props=swe_props, **props
+        constants=consts, additional_props=swe_props, **props
     )
     pa.add_property('parent_idx', type='int')
+    pa.add_property('closest_idx', type='int')
 
     # default property arrays to save out.
     props = ['x', 'y', 'h', 'rho', 'p', 'A', 'uh', 'vh', 'u', 'v', 'm', 'tu',
@@ -60,24 +70,31 @@ def get_particle_array_swe(constants=None, **props):
 
 
 class CheckForParticlesToSplit(Equation):
-    def __init__(self, dest, h_max=1e9, A_max=1e9):
+    def __init__(self, dest, h_max=1e9, A_max=1e9, x_min=-1e9, x_max=1e9,
+                 y_min=-1e9, y_max=1e9):
         self.A_max = A_max
         self.h_max = h_max
+        self.x_min = x_min
+        self.x_max = x_max
+        self.y_min = y_min
+        self.y_max = y_max
         super(CheckForParticlesToSplit, self).__init__(dest, None)
 
     def initialize(self, d_pa_to_split, d_idx):
         d_pa_to_split[d_idx] = 0.0
 
-    def post_loop(self, d_idx, d_rho0, d_A, d_h, d_pa_to_split):
-        if d_A[d_idx] > self.A_max and d_h[d_idx] < self.h_max:
+    def post_loop(self, d_idx, d_rho0, d_A, d_h, d_x, d_y, d_pa_to_split):
+        if (d_A[d_idx] > self.A_max and d_h[d_idx] < self.h_max
+           and (self.x_min < d_x[d_idx] < self.x_max)
+           and (self.y_min < d_y[d_idx] < self.y_max)):
             d_pa_to_split[d_idx] = 1
 
 
 class ParticleSplit(object):
     def __init__(self, pa_arr):
         self.pa_arr = pa_arr
-        self.center_pa_mass_frac = 0.1787
-        self.edge_pa_mass_frac = 0.1369
+        self.center_pa_mass_frac = 0.178705766141917
+        self.edge_pa_mass_frac = 0.136882287617319
         self.pa_h_ratio = 0.9
         self.center_and_edge_pa_separation_frac = 0.4
         self.props = self.pa_arr.properties.keys() # Change
@@ -164,12 +181,17 @@ class ParticleSplit(object):
 
 
 class FindMergeable(Equation):
-    def __init__(self, dest, sources, A_min):
+    def __init__(self, dest, sources, A_min, x_min=-1e9, x_max=1e9, y_min=-1e9,
+                 y_max=1e9):
         self.A_min = A_min
-        super(FindMergeable, self).__init(dest, sources)
+        self.x_min = x_min
+        self.x_max = x_max
+        self.y_min = y_min
+        self.y_max = y_max
+        super(FindMergeable, self).__init__(dest, sources)
 
     def loop_all(self, d_idx, d_merge, d_closest_idx, d_x, d_y, d_h, d_A,
-                 s_x, s_y, NBRS, N_NBRS):
+                 s_x, s_y, s_A, NBRS, N_NBRS):
         i, closest = declare('int', 2)
         s_idx = declare('unsigned int')
         d_merge[d_idx] = 0
@@ -177,27 +199,30 @@ class FindMergeable(Equation):
         yi = d_y[d_idx]
         rmin = d_h[d_idx] * 10.0
         closest = -1
-        for i in range(N_NBRS):
-            s_idx = NBRS[i]
-            if s_idx == d_idx:
-                continue
-            xij = xi - s_x[s_idx]
-            yij = yi - s_y[s_idx]
-            rij = sqrt(xij*xij + yij*yij)
-            if rij < rmin and (d_A[d_idx] < self.A_min
-                               or d_A[s_idx] < self.A_min):
-                closest = s_idx
-                rmin = rij
+        if (d_A[d_idx] < self.A_min
+            and ((self.x_min < d_x[d_idx] < self.x_max)
+                  and (self.y_min < d_y[d_idx] < self.y_max))):
+            for i in range(N_NBRS):
+                s_idx = NBRS[i]
+                if s_idx == d_idx:
+                    continue
+                xij = xi - s_x[s_idx]
+                yij = yi - s_y[s_idx]
+                rij = sqrt(xij*xij + yij*yij)
+                if rij < rmin:
+                    closest = s_idx
+                    rmin = rij
         d_closest_idx[d_idx] = closest
 
-    def post_loop(self, d_idx, d_closest_idx, d_merge, d_x, d_y, KERNEL):
+    def post_loop(self, d_idx, d_m, d_u, d_v, d_h, d_closest_idx, d_merge, d_x,
+                  d_y, KERNEL):
         idx = declare('int')
+        xma = declare('matrix(3)')
+        xmb = declare('matrix(3)')
         idx = d_closest_idx[d_idx]
         if idx > -1:
-            if idx == d_closest_idx[idx]:
+            if d_idx == d_closest_idx[idx]:
                 if d_idx < idx:
-                    xma = declare('matrix(3)')
-                    xmb = declare('matrix(3)')
                     m_merged = d_m[d_idx] + d_m[idx]
                     x_merged = (d_m[d_idx]*d_x[d_idx] + d_m[idx]*d_x[idx]) \
                                 / m_merged
@@ -207,8 +232,8 @@ class FindMergeable(Equation):
                     xma[1] = y_merged - d_y[d_idx]
                     xmb[0] = x_merged - d_x[idx]
                     xmb[1] = y_merged - d_y[idx]
-                    rma = sqrt(xma[0]*xma[0], xma[1]*xma[1])
-                    rmb = sqrt(xmb[0]*xmb[0], xmb[1]*xmb[1])
+                    rma = sqrt(xma[0]*xma[0] + xma[1]*xma[1])
+                    rmb = sqrt(xmb[0]*xmb[0] + xmb[1]*xmb[1])
                     d_u[d_idx] = (d_m[d_idx]*d_u[d_idx] + d_m[idx]*d_u[idx]) \
                                   / m_merged
                     d_v[d_idx] = (d_m[d_idx]*d_v[d_idx] + d_m[idx]*d_v[idx]) \
@@ -218,17 +243,23 @@ class FindMergeable(Equation):
                     d_h[d_idx] = sqrt((7*pi/10.) * (m_merged/(const1+const2)))
                     d_m[d_idx] = m_merged
                 else:
-                    d_merge[idx] = 1
+                    d_merge[d_idx] = 1
+
+    def reduce(self, dst):
+        indices = declare('object')
+        indices = numpy.where(dst.merge > 0)[0]
+        if numpy.any(indices):
+            dst.remove_particles(indices)
 
 
 class InitialDensityEvalAfterMerge(Equation):
     def loop_all(self, d_rho, d_idx, d_merge, d_closest_idx, d_x, d_y, s_h,
                  s_m, s_x, s_y, KERNEL, NBRS, N_NBRS):
+        i = declare('int')
+        s_idx = declare('long')
+        xij = declare('matrix(3)')
         if d_merge[d_closest_idx[d_idx]] == 1:
             d_rho[d_idx] = 0.0
-            i = declare('int')
-            s_idx = declare('long')
-            xij = declare('matrix(3)')
             rij = 0.0
             rho_sum = 0.0
             for i in range(N_NBRS):
@@ -495,9 +526,9 @@ class DaughterVelocityEval(Equation):
             cv = d_A[d_parent_idx[d_idx]] / d_sum_Ak[d_parent_idx[d_idx]]
             dw_ratio = d_dw[d_parent_idx[d_idx]] / (d_rho[d_idx]/self.rhow)
             d_u[d_idx] = cv * dw_ratio * d_u_parent[d_idx]
-            d_uh[d_idx] = d_u[d_idx]
+            #d_uh[d_idx] = d_u[d_idx]
             d_v[d_idx] = cv * dw_ratio * d_v_parent[d_idx]
-            d_vh[d_idx] = d_v[d_idx]
+            #d_vh[d_idx] = d_v[d_idx]
             d_parent_idx[d_idx] = 0
 
 
@@ -523,9 +554,11 @@ class ParticleAccelerations(Equation):
 
     def loop(self, d_x, d_y, d_rho, d_idx, s_m, s_idx, s_rho, d_m,
              DWI, DWJ, d_au, d_av, s_alpha, d_alpha, s_p, d_p, d_tu,
-             s_tu, d_tv, s_tv):
-        tmp1 = (s_rho[s_idx]*self.dim) / s_alpha[s_idx]
-        tmp2 = (d_rho[d_idx]*self.dim) / d_alpha[d_idx]
+             s_dw, d_dw, s_tu, d_tv, s_tv):
+        #tmp1 = (s_rho[s_idx]*self.dim) / s_alpha[s_idx]
+        #tmp2 = (d_rho[d_idx]*self.dim) / d_alpha[d_idx]
+        tmp1 = (s_dw[s_idx]*self.rhow*self.dim) / s_alpha[s_idx]
+        tmp2 = (d_dw[d_idx]*self.rhow*self.dim) / d_alpha[d_idx]
         d_tu[d_idx] += s_m[s_idx] * self.ct * (tmp1*DWJ[0] + tmp2*DWI[0])
         d_tv[d_idx] += s_m[s_idx] * self.ct * (tmp1*DWJ[1] + tmp2*DWI[1])
 
@@ -604,7 +637,6 @@ class BedFrictionSourceEval(Equation):
         d_Sfy[d_idx] = d_v[d_idx] * temp
 
 
-
 class BoundaryInnerReimannStateEval(Equation):
     def initialize(self, d_u_inner_reimann, d_v_inner_reimann,
                    d_dw_inner_reimann, d_idx):
@@ -635,7 +667,6 @@ class BoundaryInnerReimannStateEval(Equation):
         d_dw_inner_reimann[d_idx] += s_dw[s_idx] * tmp
 
 
-
 class SubCriticalInFlow(Equation):
     def __init__(self, dest):
         self.g = 9.8
@@ -646,7 +677,6 @@ class SubCriticalInFlow(Equation):
         const = 1. / (2.*sqrt(self.g))
         d_dw[d_idx] = (const*(d_u[d_idx] - d_u_inner_reimann[d_idx])
                        + sqrt(d_dw_inner_reimann[d_idx]))**2
-
 
 
 class SubCriticalOutFlow(Equation):
@@ -663,10 +693,21 @@ class SubCriticalOutFlow(Equation):
         d_v[d_idx] = d_v_inner_reimann[d_idx]
 
 
-
 class SuperCriticalOutFlow(Equation):
     def post_loop(self, d_dw, d_dw_inner_reimann, d_u, d_u_inner_reimann,
                   d_v, d_v_inner_reimann, d_idx):
         d_u[d_idx] = d_u_inner_reimann[d_idx]
         d_v[d_idx] = d_v_inner_reimann[d_idx]
         d_dw[d_idx] = d_dw_inner_reimann[d_idx]
+
+
+
+#class InletDensityEvalFromDepth(Equation):
+#    def __init__(self, dest, rhow=1000.0):
+#        self.rhow = rhow
+#        super(InletDensityEvalFromDepth, self).__init__(dest, None)
+#
+#    def post_loop(self, d_rho, d_idx, d_dw):
+#        d_rho[d_idx] = d_dw[d_idx] * self.rhow
+
+
