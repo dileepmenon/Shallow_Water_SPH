@@ -245,7 +245,7 @@ class FindMergeable(Equation):
                 else:
                     d_merge[d_idx] = 1
 
-    def reduce(self, dst):
+    def reduce(self, dst, t, dt):
         indices = declare('object')
         indices = numpy.where(dst.merge > 0)[0]
         if numpy.any(indices):
@@ -359,7 +359,7 @@ class CheckConvergenceDensityResidual(Equation):
     def initialize(self):
         self.eqn_has_converged = 0
 
-    def reduce(self, dst):
+    def reduce(self, dst, t, dt):
         dst.tmp_comp[0] = serial_reduce_array(dst.psi >= 0.0, 'sum')
         dst.tmp_comp[1] = serial_reduce_array(dst.psi**2, 'sum')
         dst.get_carray('tmp_comp').set_data(parallel_reduce_array(dst.tmp_comp, 
@@ -429,14 +429,22 @@ class InitialGuessDensity(Equation):
         d_rho[d_idx] = d_rho[d_idx] * e**(d_exp_lambda[d_idx])
 
 
+#class UpdateSmoothingLength(Equation):
+#    def __init__(self, h0, dim, dest, sources=None):
+#        self.h0 = h0
+#        self.dim = dim
+#        super(UpdateSmoothingLength, self).__init__(dest, sources)
+#
+#    def post_loop(self, d_h, d_rho0, d_rho, d_idx):
+#        d_h[d_idx] = self.h0 * (d_rho0[d_idx]/d_rho[d_idx])**(1./self.dim)
+
 class UpdateSmoothingLength(Equation):
-    def __init__(self, h0, dim, dest, sources=None):
-        self.h0 = h0
+    def __init__(self, dim, dest, sources=None):
         self.dim = dim
         super(UpdateSmoothingLength, self).__init__(dest, sources)
 
-    def post_loop(self, d_h, d_rho0, d_rho, d_idx):
-        d_h[d_idx] = self.h0 * (d_rho0[d_idx]/d_rho[d_idx])**(1./self.dim)
+    def post_loop(self, d_h, d_h0, d_rho0, d_rho, d_idx):
+        d_h[d_idx] = d_h0[d_idx] * (d_rho0[d_idx]/d_rho[d_idx])**(1./self.dim)
 
 
 class DensityResidual(Equation):
@@ -474,7 +482,7 @@ class CheckConvergence(Equation):
                   d_rho_prev_iter,  d_idx, t):
         d_positive_rho_residual[d_idx] = abs(d_rho_residual[d_idx])
 
-    def reduce(self, dst):
+    def reduce(self, dst, t, dt):
         max_epsilon = max(dst.positive_rho_residual / dst.rho_prev_iter)
         if max_epsilon <= 1e-15:
             self.eqn_has_converged = 1
@@ -532,9 +540,41 @@ class DaughterVelocityEval(Equation):
             d_parent_idx[d_idx] = 0
 
 
+def mu_calc(hi=1.0, hj=1.0, rhoi=1.0, rhoj=1.0, csi=1.0, csj=1.0,
+            velij_dot_rij=1.0, rij2=1.0):
+    h_bar = (hi+hj) / 2.0
+    rho_bar = (rhoi+rhoj) / 2.0
+    cs_bar = (csi+csj) / 2.0
+    eta2 = 0.01 * hi**2
+    muij = (h_bar*velij_dot_rij) / (rij2+eta2)
+    return muij
+
+
+def artificial_visc(alpha=1.0, rij2=1.0,  hi=1.0, hj=1.0, rhoi=1.0, rhoj=1.0,
+                    csi=1.0, csj=1.0, muij=1.0):
+    # Artificial Viscosity (Monoghan)
+    cs_bar = (csi+csj) / 2.0
+    rho_bar = (rhoi+rhoj) / 2.0
+    pi_visc = -(alpha*cs_bar*muij) / rho_bar
+    return pi_visc
+
+
+def viscosity_LF(alpha=1.0, rij2=1.0, hi=1.0, hj=1.0, rhoi=1.0, rhoj=1.0,
+                 csi=1.0, csj=1.0, muij=1.0):
+    # Viscosity (Ata and Soulaimani)
+    cs_bar = (csi+csj) / 2.0
+    rho_bar = (rhoi+rhoj) / 2.0
+    eta2 = 0.01 * hi**2
+    h_bar = (hi+hj) / 2.0
+    tmp = (muij*(rij2+eta2)**0.5) / h_bar
+    pi_visc = -(cs_bar*tmp) / rho_bar
+    return pi_visc
+
+
 class ParticleAccelerations(Equation):
     def __init__(self, dim, dest, sources, bx=0, by=0, bxx=0,
-                 bxy=0, byy=0, u_only=False, v_only=False):
+                 bxy=0, byy=0, u_only=False, v_only=False,
+                 alpha=0, visc_option=2):
         super(ParticleAccelerations, self).__init__(dest, sources)
         self.g = 9.81
         self.rhow = 1000.0
@@ -547,20 +587,50 @@ class ParticleAccelerations(Equation):
         self.byy = byy
         self.u_only = u_only
         self.v_only = v_only
+        self.alpha = 0.0
+        if visc_option == 1:
+            self.viscous_func = artificial_visc
+        else:
+            self.viscous_func = viscosity_LF
 
     def initialize(self, d_idx, d_tu, d_tv):
         d_tu[d_idx] = 0.0
         d_tv[d_idx] = 0.0
 
-    def loop(self, d_x, d_y, d_rho, d_idx, s_m, s_idx, s_rho, d_m,
-             DWI, DWJ, d_au, d_av, s_alpha, d_alpha, s_p, d_p, d_tu,
-             s_dw, d_dw, s_tu, d_tv, s_tv):
+    def loop(self, d_x, d_y, s_x, s_y, d_rho, d_idx, s_m, s_idx, s_rho, d_m,
+             DWI, DWJ, d_au, d_av, s_alpha, d_alpha, s_p, d_p, d_tu, s_dw, d_dw,
+             s_tu, d_tv, s_tv, d_h, s_h, d_u, s_u, d_v, s_v, d_cs, s_cs):
         #tmp1 = (s_rho[s_idx]*self.dim) / s_alpha[s_idx]
         #tmp2 = (d_rho[d_idx]*self.dim) / d_alpha[d_idx]
         tmp1 = (s_dw[s_idx]*self.rhow*self.dim) / s_alpha[s_idx]
         tmp2 = (d_dw[d_idx]*self.rhow*self.dim) / d_alpha[d_idx]
-        d_tu[d_idx] += s_m[s_idx] * self.ct * (tmp1*DWJ[0] + tmp2*DWI[0])
-        d_tv[d_idx] += s_m[s_idx] * self.ct * (tmp1*DWJ[1] + tmp2*DWI[1])
+
+        uij = d_u[d_idx] - s_u[s_idx]
+        vij = d_v[d_idx] - s_v[s_idx]
+        xij = d_x[d_idx] - s_x[s_idx]
+        yij = d_y[d_idx] - s_y[s_idx]
+        rij2 = xij**2 + yij**2
+        uij_dot_xij = uij * xij
+        vij_dot_yij = vij * yij
+        velij_dot_rij = uij_dot_xij + vij_dot_yij
+
+        muij = mu_calc(d_h[d_idx], s_h[s_idx], d_rho[d_idx], s_rho[s_idx],
+                       d_cs[d_idx], s_cs[s_idx], velij_dot_rij, rij2)
+
+        if velij_dot_rij < 0:
+            pi_visc = self.viscous_func(self.alpha, rij2, d_h[d_idx],
+                                        s_h[s_idx], d_rho[d_idx], s_rho[s_idx],
+                                        d_cs[d_idx], s_cs[s_idx], muij)
+        else:
+            pi_visc = 0
+
+        d_tu[d_idx] += s_m[s_idx] * (self.ct * (tmp1*DWJ[0] + tmp2*DWI[0])
+                                     + pi_visc)
+        d_tv[d_idx] += s_m[s_idx] * (self.ct * (tmp1*DWJ[1] + tmp2*DWI[1])
+                                     + pi_visc)
+
+    def _get_helpers_(self):
+        return [mu_calc, artificial_visc, viscosity_LF]
 
     def post_loop(self, d_idx, d_u, d_v, d_tu, d_tv, d_au, d_av, d_Sfx, d_Sfy):
         bx =  self.bx; by = self.by
