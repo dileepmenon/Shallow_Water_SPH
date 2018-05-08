@@ -14,15 +14,14 @@ def get_particle_array_swe(constants=None, **props):
 
     This sets the default properties to be::
 
-        ['x', 'y', 'z', 'u', 'v', 'w', 'h', 'rho', 'm', 'p', 'V',
-         'A', 'cs', 'n', 'rho0', 'rho_prev_iter', 'rho_residual',
-         'positive_rho_residual', 'summation_rho', 'dw', 'alpha',
-         'exp_lambda', 'tv', 'tu', 'au', 'av', 'u_prev_iter',
-         'v_prev_iter', 'uh', 'vh', 'dt_cfl', 'pa_to_split', 'Sfx',
-         'Sfy', 'psi', 'sum_Ak', 'u_parent', v_parent', 'parent_idx',
-         'b', 'bx', 'by', 'bxx', 'bxy', byy', 'closest_idx', 'merge',
-         'dw_inner_reimann', 'u_inner_reimann', 'v_inner_reimann',
-         'shep_corr']
+        ['x', 'y', 'z', 'u', 'v', 'w', 'h', 'rho', 'arho' 'm', 'p', 'V', 'A',
+        'cs', 'n', 'rho0', 'rho_prev_iter', 'rho_residual',
+        'positive_rho_residual', 'summation_rho', 'dw', 'alpha', 'exp_lambda',
+        'tv', 'tu', 'au', 'av', 'u_prev_step', 'v_prev_step', 'uh', 'vh',
+        'dt_cfl', 'pa_to_split', 'Sfx', 'Sfy', 'psi', 'sum_Ak', 'u_parent',
+        v_parent', 'uh_parent', 'vh_parent', 'parent_idx', 'b', 'bx', 'by',
+        'bxx', 'bxy', byy', 'closest_idx', 'merge', 'dw_inner_reimann',
+        'u_inner_reimann', 'v_inner_reimann', 'shep_corr']
 
 
     Parameters
@@ -43,11 +42,12 @@ def get_particle_array_swe(constants=None, **props):
 
     swe_props = ['A', 'cs', 'n', 'rho0', 'rho_prev_iter', 'rho_residual',
                  'positive_rho_residual', 'summation_rho', 'dw', 'alpha',
-                 'exp_lambda', 'tv', 'tu', 'u_prev_iter', 'v_prev_iter',
+                 'exp_lambda', 'tv', 'tu', 'u_prev_step', 'v_prev_step',
                  'uh', 'vh', 'dt_cfl', 'pa_to_split', 'Sfx', 'Sfy', 'V',
-                 'psi', 'sum_Ak', 'u_parent', 'v_parent', 'b', 'bx', 'by',
-                 'bxx', 'bxy', 'byy', 'merge', 'dw_inner_reimann',
-                 'u_inner_reimann', 'v_inner_reimann', 'shep_corr']
+                 'psi', 'sum_Ak', 'arho', 'u_parent', 'v_parent', 'uh_parent',
+                 'vh_parent', 'b', 'bx', 'by', 'bxx', 'bxy', 'byy', 'merge',
+                 'dw_inner_reimann', 'u_inner_reimann', 'v_inner_reimann',
+                 'shep_corr']
 
     consts = {'tmp_comp': [0.0, 0.0]}
     if constants:
@@ -107,35 +107,44 @@ class ParticleSplit(object):
         else:
             # Parent particle properties
             h_parent = self.pa_arr.h[self.idx_pa_to_split]
+            h0_parent = self.pa_arr.h0[self.idx_pa_to_split]
             m_parent = self.pa_arr.m[self.idx_pa_to_split]
             x_parent = self.pa_arr.x[self.idx_pa_to_split]
             y_parent = self.pa_arr.y[self.idx_pa_to_split]
+            u_prev_step_parent = self.pa_arr.u_prev_step[self.idx_pa_to_split]
+            v_prev_step_parent = self.pa_arr.v_prev_step[self.idx_pa_to_split]
             rho_parent = self.pa_arr.rho[self.idx_pa_to_split]
             rho0_parent = self.pa_arr.rho0[self.idx_pa_to_split]
+            alpha_parent = self.pa_arr.alpha[self.idx_pa_to_split]
 
             # Edge daughter particle properties update
             n = self.num_edge_pa_after_single_split
             h_edge_pa  = self.pa_h_ratio * np.repeat(h_parent, n)
+            h0_edge_pa = self.pa_h_ratio * np.repeat(h_parent, n)
+            u_prev_step_edge_pa = np.repeat(u_prev_step_parent, n)
+            v_prev_step_edge_pa = np.repeat(v_prev_step_parent, n)
             m_edge_pa  = self.edge_pa_mass_frac * np.repeat(m_parent, n)
             edge_pa_pos = self._get_edge_pa_positions(h_parent)
             x_edge_pa  = edge_pa_pos[0] + np.repeat(x_parent, n)
             y_edge_pa  = edge_pa_pos[1] + np.repeat(y_parent, n)
 
             total_num_edge_pa = x_edge_pa.size
-            #rho0_edge_pa = np.max(self.pa_arr.rho0) * ones(total_num_edge_pa)
             rho0_edge_pa = np.repeat(rho0_parent, n)
             rho_edge_pa = np.repeat(rho_parent, n)
+            alpha_edge_pa = np.repeat(alpha_parent, n)
             parent_idx_edge_pa = np.repeat(self.idx_pa_to_split, n)
 
             # Center daughter particle properties update
             for idx in self.idx_pa_to_split:
                 self.pa_arr.m[idx] *= self.center_pa_mass_frac
                 self.pa_arr.h[idx] *= self.pa_h_ratio
+                self.pa_arr.h0[idx] *= self.pa_h_ratio
                 self.pa_arr.parent_idx[idx] = int(idx)
 
-            self._add_edge_pa_prop(h_edge_pa, m_edge_pa, x_edge_pa, y_edge_pa,
-                                   rho0_edge_pa, rho_edge_pa,
-                                   parent_idx_edge_pa)
+            self._add_edge_pa_prop(h0_edge_pa, h_edge_pa, m_edge_pa, x_edge_pa,
+                                   y_edge_pa, rho0_edge_pa, rho_edge_pa,
+                                   u_prev_step_edge_pa, v_prev_step_edge_pa,
+                                   alpha_edge_pa, parent_idx_edge_pa)
 
     def _get_idx_of_particles_to_split(self):
         idx_pa_to_split = []
@@ -157,22 +166,32 @@ class ParticleSplit(object):
         y = np.tile(y, num_of_pa_to_split) * np.repeat(h_parent, n)
         return x.copy(), y.copy()
 
-    def _add_edge_pa_prop(self, h_edge_pa, m_edge_pa, x_edge_pa, y_edge_pa,
-                          rho0_edge_pa, rho_edge_pa, parent_idx_edge_pa):
+    def _add_edge_pa_prop(self, h0_edge_pa, h_edge_pa, m_edge_pa, x_edge_pa,
+                          y_edge_pa, rho0_edge_pa, rho_edge_pa,
+                          u_prev_step_edge_pa, v_prev_step_edge_pa,
+                          alpha_edge_pa, parent_idx_edge_pa):
         add_prop = {}
         for prop in self.props:
             if prop == 'm':
                 add_prop[prop] = m_edge_pa
             elif prop == 'h':
                 add_prop[prop] = h_edge_pa
+            elif prop == 'h0':
+                add_prop[prop] = h0_edge_pa
             elif prop == 'x':
                 add_prop[prop] = x_edge_pa
             elif prop == 'y':
                 add_prop[prop] = y_edge_pa
+            elif prop == 'u_prev_step':
+                add_prop[prop] = u_prev_step_edge_pa
+            elif prop == 'v_prev_step':
+                add_prop[prop] = v_prev_step_edge_pa
             elif prop == 'rho0':
                 add_prop[prop] = rho0_edge_pa
             elif prop == 'rho':
                 add_prop[prop] = rho_edge_pa
+            elif prop == 'alpha':
+                add_prop[prop] = alpha_edge_pa
             elif prop == 'parent_idx':
                 add_prop[prop] = parent_idx_edge_pa.astype(int)
             else:
@@ -214,8 +233,8 @@ class FindMergeable(Equation):
                     rmin = rij
         d_closest_idx[d_idx] = closest
 
-    def post_loop(self, d_idx, d_m, d_u, d_v, d_h, d_closest_idx, d_merge, d_x,
-                  d_y, KERNEL):
+    def post_loop(self, d_idx, d_m, d_u, d_v, d_h, d_uh, d_vh, d_closest_idx,
+                  d_merge, d_x, d_y, KERNEL):
         idx = declare('int')
         xma = declare('matrix(3)')
         xmb = declare('matrix(3)')
@@ -236,7 +255,11 @@ class FindMergeable(Equation):
                     rmb = sqrt(xmb[0]*xmb[0] + xmb[1]*xmb[1])
                     d_u[d_idx] = (d_m[d_idx]*d_u[d_idx] + d_m[idx]*d_u[idx]) \
                                   / m_merged
+                    d_uh[d_idx] = (d_m[d_idx]*d_uh[d_idx] + d_m[idx]*d_uh[idx]) \
+                                  / m_merged
                     d_v[d_idx] = (d_m[d_idx]*d_v[d_idx] + d_m[idx]*d_v[idx]) \
+                                  / m_merged
+                    d_vh[d_idx] = (d_m[d_idx]*d_vh[d_idx] + d_m[idx]*d_vh[idx]) \
                                   / m_merged
                     const1 = d_m[d_idx] * KERNEL.kernel(xma, rma, d_h[d_idx])
                     const2 = d_m[idx] * KERNEL.kernel(xmb, rmb, d_h[idx])
@@ -273,9 +296,9 @@ class InitialDensityEvalAfterMerge(Equation):
 
 class EulerStep(IntegratorStep):
     """Fast but inaccurate integrator. Use this for testing"""
-    def initialize(self, d_u, d_v, d_u_prev_iter, d_v_prev_iter, d_idx):
-        d_u_prev_iter[d_idx] = d_u[d_idx]
-        d_v_prev_iter[d_idx] = d_v[d_idx]
+    def initialize(self, d_u, d_v, d_u_prev_step, d_v_prev_step, d_idx):
+        d_u_prev_step[d_idx] = d_u[d_idx]
+        d_v_prev_step[d_idx] = d_v[d_idx]
 
     def stage1(self, d_idx, d_u, d_v, d_au, d_av, d_x, d_y, dt):
         d_u[d_idx] += dt * d_au[d_idx]
@@ -286,13 +309,13 @@ class EulerStep(IntegratorStep):
 
 class SWEStep(IntegratorStep):
     """Predictor corrector Integrator for Shallow Water problems"""
-    def initialize(self, t, d_u, d_v, d_uh, d_vh, d_u_prev_iter, d_v_prev_iter,
+    def initialize(self, t, d_u, d_v, d_uh, d_vh, d_u_prev_step, d_v_prev_step,
                    d_idx):
-        d_u_prev_iter[d_idx] = d_u[d_idx]
-        d_v_prev_iter[d_idx] = d_v[d_idx]
-        if d_uh[d_idx] == 0.0 and d_vh[d_idx] == 0.0:
-            d_uh[d_idx] = d_u[d_idx]
-            d_vh[d_idx] = d_v[d_idx]
+        d_u_prev_step[d_idx] = d_u[d_idx]
+        d_v_prev_step[d_idx] = d_v[d_idx]
+        #if d_uh[d_idx] == 0.0 and d_vh[d_idx] == 0.0:
+        #    d_uh[d_idx] = d_u[d_idx]
+        #    d_vh[d_idx] = d_v[d_idx]
 
     def stage1(self, d_uh, d_vh, d_idx, d_au, d_av, dt):
         d_uh[d_idx] +=  dt * d_au[d_idx]
@@ -335,7 +358,7 @@ class GatherDensityEvalNextIteration(Equation):
 
 
 class ScatterDensityEvalNextIteration(Equation):
-    def initialize(self, d_rho, d_idx, d_rho_prev_iter):
+    def initialize(self, t, d_rho, d_idx, d_rho_prev_iter):
         d_rho_prev_iter[d_idx] = d_rho[d_idx]
         d_rho[d_idx] = 0.0
 
@@ -348,7 +371,29 @@ class NonDimensionalDensityResidual(Equation):
         super(NonDimensionalDensityResidual, self).__init__(dest, sources)
 
     def post_loop(self, d_psi, d_rho, d_rho_prev_iter, d_idx):
-        d_psi[d_idx] = abs(d_rho[d_idx]-d_rho_prev_iter[d_idx]) / d_rho[d_idx]
+        d_psi[d_idx] = abs(d_rho[d_idx]-d_rho_prev_iter[d_idx]) \
+                       / d_rho_prev_iter[d_idx]
+
+
+#class CheckConvergenceDensityResidual(Equation):
+#    def __init__(self, dest, sources=None):
+#        super(CheckConvergenceDensityResidual, self).__init__(dest, sources)
+#        self.eqn_has_converged = 0
+#
+#    def initialize(self):
+#        self.eqn_has_converged = 0
+#
+#    def reduce(self, dst, t, dt):
+#        dst.tmp_comp[0] = serial_reduce_array(dst.psi >= 0.0, 'sum')
+#        dst.tmp_comp[1] = serial_reduce_array(dst.psi**2, 'sum')
+#        dst.get_carray('tmp_comp').set_data(parallel_reduce_array(dst.tmp_comp, 
+#                                                                  'sum'))
+#        epsilon = sqrt(dst.tmp_comp[1] / dst.tmp_comp[0])
+#        if epsilon <= 1e-3:
+#            self.eqn_has_converged = 1
+#
+#    def converged(self):
+#        return self.eqn_has_converged
 
 
 class CheckConvergenceDensityResidual(Equation):
@@ -360,11 +405,7 @@ class CheckConvergenceDensityResidual(Equation):
         self.eqn_has_converged = 0
 
     def reduce(self, dst, t, dt):
-        dst.tmp_comp[0] = serial_reduce_array(dst.psi >= 0.0, 'sum')
-        dst.tmp_comp[1] = serial_reduce_array(dst.psi**2, 'sum')
-        dst.get_carray('tmp_comp').set_data(parallel_reduce_array(dst.tmp_comp, 
-                                                                  'sum'))
-        epsilon = sqrt(dst.tmp_comp[1] / dst.tmp_comp[0])
+        epsilon = max(dst.psi)
         if epsilon <= 1e-3:
             self.eqn_has_converged = 1
 
@@ -410,6 +451,26 @@ class SummationDensity(Equation):
         d_summation_rho[d_idx] += s_m[s_idx] * WI
 
 
+#class InitialGuessDensityAndSmoothingLengthVacondio(Equation):
+#    def __init__(self, dim, dest, sources):
+#        super(InitialGuessDensityAndSmoothingLengthVacondio,
+#              self).__init__(dest, sources)
+#        self.dim = dim
+#
+#    def initialize(self, d_arho, d_idx):
+#        d_arho[d_idx] = 0
+#
+#    def loop(self, d_arho, d_idx, s_m, s_rho, s_idx, d_u_prev_step,
+#             d_v_prev_step, s_u_prev_step, s_v_prev_step, DWI):
+#        tmp1 = (d_u_prev_step[s_idx]-s_u_prev_step[d_idx]) * DWI[0]
+#        tmp2 = (d_v_prev_step[s_idx]-s_v_prev_step[d_idx]) * DWI[1]
+#        d_arho[d_idx] += (s_m[s_idx]/s_rho[s_idx]) * (tmp1 + tmp2)
+#
+#    def post_loop(self, d_rho, d_h, dt, d_arho, d_idx):
+#        d_rho[d_idx] = d_rho[d_idx] + dt*d_rho[d_idx]*d_arho[d_idx]
+#        d_h[d_idx] = d_h[d_idx] - (dt/self.dim)*d_h[d_idx]*d_arho[d_idx]
+
+
 class InitialGuessDensity(Equation):
     def __init__(self, dim, dest, sources):
         super(InitialGuessDensity, self).__init__(dest, sources)
@@ -418,14 +479,14 @@ class InitialGuessDensity(Equation):
     def initialize(self, d_exp_lambda, d_idx):
         d_exp_lambda[d_idx] = 0.0
 
-    def loop(self, d_exp_lambda, d_u_prev_iter, d_v_prev_iter, d_alpha, d_idx,
-             s_m, s_u_prev_iter, s_v_prev_iter, s_idx, DWI, dt, t):
-        a1 = (s_u_prev_iter[s_idx]-d_u_prev_iter[d_idx]) * DWI[0]
-        a2 = (s_v_prev_iter[s_idx]-d_v_prev_iter[d_idx]) * DWI[1]
+    def loop(self, d_exp_lambda, d_u_prev_step, d_v_prev_step, d_alpha, d_idx,
+             s_m, s_u_prev_step, s_v_prev_step, s_idx, DWI, dt, t):
+        a1 = (s_u_prev_step[s_idx]-d_u_prev_step[d_idx]) * DWI[0]
+        a2 = (s_v_prev_step[s_idx]-d_v_prev_step[d_idx]) * DWI[1]
         const = (self.dim*dt) / d_alpha[d_idx]
         d_exp_lambda[d_idx] +=  const * (s_m[s_idx]*(a1+a2))
 
-    def post_loop(self, d_rho, d_exp_lambda, d_idx):
+    def post_loop(self, t, d_rho, d_exp_lambda, d_idx):
         d_rho[d_idx] = d_rho[d_idx] * e**(d_exp_lambda[d_idx])
 
 
@@ -438,10 +499,11 @@ class InitialGuessDensity(Equation):
 #    def post_loop(self, d_h, d_rho0, d_rho, d_idx):
 #        d_h[d_idx] = self.h0 * (d_rho0[d_idx]/d_rho[d_idx])**(1./self.dim)
 
+
 class UpdateSmoothingLength(Equation):
-    def __init__(self, dim, dest, sources=None):
+    def __init__(self, dim, dest):
         self.dim = dim
-        super(UpdateSmoothingLength, self).__init__(dest, sources)
+        super(UpdateSmoothingLength, self).__init__(dest, None)
 
     def post_loop(self, d_h, d_h0, d_rho0, d_rho, d_idx):
         d_h[d_idx] = d_h0[d_idx] * (d_rho0[d_idx]/d_rho[d_idx])**(1./self.dim)
@@ -512,11 +574,14 @@ class DaughterVelocityEval(Equation):
         self.rhow = rhow
         super(DaughterVelocityEval, self).__init__(dest, sources)
 
-    def initialize(self, d_sum_Ak, d_idx, d_m, d_rho, d_u, d_v, d_u_parent,
-                   d_v_parent, d_parent_idx):
+    def initialize(self, d_sum_Ak, d_idx, d_m, d_rho, d_u, d_v, d_uh,
+                   d_vh, d_u_parent, d_v_parent, d_uh_parent, d_vh_parent,
+                   d_parent_idx):
         d_sum_Ak[d_idx] = 0.0
         d_u_parent[d_idx] = d_u[d_parent_idx[d_idx]]
+        d_uh_parent[d_idx] = d_uh[d_parent_idx[d_idx]]
         d_v_parent[d_idx] = d_v[d_parent_idx[d_idx]]
+        d_vh_parent[d_idx] = d_vh[d_parent_idx[d_idx]]
 
     def loop_all(self, d_sum_Ak, d_pa_to_split, d_parent_idx, d_idx, s_m, s_rho,
                  s_parent_idx, NBRS, N_NBRS):
@@ -529,14 +594,15 @@ class DaughterVelocityEval(Equation):
                     d_sum_Ak[d_idx] += s_m[s_idx] / s_rho[s_idx]
 
     def post_loop(self, d_idx, d_parent_idx, d_A, d_sum_Ak, d_dw, d_rho, d_u,
-                  d_uh, d_vh, d_v, d_u_parent, d_v_parent):
+                  d_uh, d_vh, d_v, d_u_parent, d_v_parent, d_uh_parent, 
+                  d_vh_parent):
         if d_parent_idx[d_idx]:
             cv = d_A[d_parent_idx[d_idx]] / d_sum_Ak[d_parent_idx[d_idx]]
             dw_ratio = d_dw[d_parent_idx[d_idx]] / (d_rho[d_idx]/self.rhow)
             d_u[d_idx] = cv * dw_ratio * d_u_parent[d_idx]
-            #d_uh[d_idx] = d_u[d_idx]
+            d_uh[d_idx] = cv * dw_ratio * d_uh_parent[d_idx]
             d_v[d_idx] = cv * dw_ratio * d_v_parent[d_idx]
-            #d_vh[d_idx] = d_v[d_idx]
+            d_vh[d_idx] = cv * dw_ratio * d_vh_parent[d_idx]
             d_parent_idx[d_idx] = 0
 
 
@@ -599,7 +665,7 @@ class ParticleAccelerations(Equation):
 
     def loop(self, d_x, d_y, s_x, s_y, d_rho, d_idx, s_m, s_idx, s_rho, d_m,
              DWI, DWJ, d_au, d_av, s_alpha, d_alpha, s_p, d_p, d_tu, s_dw, d_dw,
-             s_tu, d_tv, s_tv, d_h, s_h, d_u, s_u, d_v, s_v, d_cs, s_cs):
+             t, s_tu, d_tv, s_tv, d_h, s_h, d_u, s_u, d_v, s_v, d_cs, s_cs):
         #tmp1 = (s_rho[s_idx]*self.dim) / s_alpha[s_idx]
         #tmp2 = (d_rho[d_idx]*self.dim) / d_alpha[d_idx]
         tmp1 = (s_dw[s_idx]*self.rhow*self.dim) / s_alpha[s_idx]
@@ -617,6 +683,7 @@ class ParticleAccelerations(Equation):
         muij = mu_calc(d_h[d_idx], s_h[s_idx], d_rho[d_idx], s_rho[s_idx],
                        d_cs[d_idx], s_cs[s_idx], velij_dot_rij, rij2)
 
+
         if velij_dot_rij < 0:
             pi_visc = self.viscous_func(self.alpha, rij2, d_h[d_idx],
                                         s_h[s_idx], d_rho[d_idx], s_rho[s_idx],
@@ -624,10 +691,12 @@ class ParticleAccelerations(Equation):
         else:
             pi_visc = 0
 
-        d_tu[d_idx] += s_m[s_idx] * (self.ct * (tmp1*DWJ[0] + tmp2*DWI[0])
-                                     + pi_visc)
-        d_tv[d_idx] += s_m[s_idx] * (self.ct * (tmp1*DWJ[1] + tmp2*DWI[1])
-                                     + pi_visc)
+
+        d_tu[d_idx] += s_m[s_idx] * ((self.ct*tmp1 + 0.5*pi_visc)*DWJ[0] +
+                                     (self.ct*tmp2 + 0.5*pi_visc)*DWI[0])
+
+        d_tv[d_idx] += s_m[s_idx] * ((self.ct*tmp1 + 0.5*pi_visc)*DWJ[1] +
+                                     (self.ct*tmp2 + 0.5*pi_visc)*DWI[1])
 
     def _get_helpers_(self):
         return [mu_calc, artificial_visc, viscosity_LF]
