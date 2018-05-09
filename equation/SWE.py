@@ -111,6 +111,8 @@ class ParticleSplit(object):
             m_parent = self.pa_arr.m[self.idx_pa_to_split]
             x_parent = self.pa_arr.x[self.idx_pa_to_split]
             y_parent = self.pa_arr.y[self.idx_pa_to_split]
+            u_parent = self.pa_arr.u[self.idx_pa_to_split]
+            v_parent = self.pa_arr.v[self.idx_pa_to_split]
             u_prev_step_parent = self.pa_arr.u_prev_step[self.idx_pa_to_split]
             v_prev_step_parent = self.pa_arr.v_prev_step[self.idx_pa_to_split]
             rho_parent = self.pa_arr.rho[self.idx_pa_to_split]
@@ -124,7 +126,8 @@ class ParticleSplit(object):
             u_prev_step_edge_pa = np.repeat(u_prev_step_parent, n)
             v_prev_step_edge_pa = np.repeat(v_prev_step_parent, n)
             m_edge_pa  = self.edge_pa_mass_frac * np.repeat(m_parent, n)
-            edge_pa_pos = self._get_edge_pa_positions(h_parent)
+            edge_pa_pos = self._get_edge_pa_positions(h_parent, u_parent,
+                                                      v_parent)
             x_edge_pa  = edge_pa_pos[0] + np.repeat(x_parent, n)
             y_edge_pa  = edge_pa_pos[1] + np.repeat(y_parent, n)
 
@@ -153,17 +156,22 @@ class ParticleSplit(object):
                 idx_pa_to_split.append(idx)
         return np.array(idx_pa_to_split)
 
-    def _get_edge_pa_positions(self, h_parent):
+    def _get_edge_pa_positions(self, h_parent, u_parent, v_parent):
         num_of_pa_to_split = len(self.idx_pa_to_split)
         n = self.num_edge_pa_after_single_split
-        x = zeros(n)
-        y = zeros(n)
+        theta_edge_pa = zeros(n)
         r = self.center_and_edge_pa_separation_frac
+
         for i, theta in enumerate(range(0, 360, 60)):
-            x[i] = r * cos((pi/180)*theta)
-            y[i] = r * sin((pi/180)*theta)
-        x = np.tile(x, num_of_pa_to_split) * np.repeat(h_parent, n)
-        y = np.tile(y, num_of_pa_to_split) * np.repeat(h_parent, n)
+            theta_edge_pa[i] = (pi/180)*theta
+
+        angle_vel =  np.where((np.abs(u_parent) > 1e-3) | (np.abs(v_parent) >
+                              1e-3), np.arctan2(v_parent, u_parent), 0)
+        angle_actual = np.tile(theta_edge_pa, num_of_pa_to_split) \
+                       + np.repeat(angle_vel, n)
+
+        x = r * np.cos(angle_actual) * np.repeat(h_parent, n)
+        y = r * np.sin(angle_actual) * np.repeat(h_parent, n)
         return x.copy(), y.copy()
 
     def _add_edge_pa_prop(self, h0_edge_pa, h_edge_pa, m_edge_pa, x_edge_pa,
@@ -197,6 +205,43 @@ class ParticleSplit(object):
             else:
                 pass
         self.pa_arr.add_particles(**add_prop)
+
+
+class DaughterVelocityEval(Equation):
+    def __init__(self, rhow, dest, sources):
+        self.rhow = rhow
+        super(DaughterVelocityEval, self).__init__(dest, sources)
+
+    def initialize(self, d_sum_Ak, d_idx, d_m, d_rho, d_u, d_v, d_uh,
+                   d_vh, d_u_parent, d_v_parent, d_uh_parent, d_vh_parent,
+                   d_parent_idx):
+        d_sum_Ak[d_idx] = 0.0
+        d_u_parent[d_idx] = d_u[d_parent_idx[d_idx]]
+        d_uh_parent[d_idx] = d_uh[d_parent_idx[d_idx]]
+        d_v_parent[d_idx] = d_v[d_parent_idx[d_idx]]
+        d_vh_parent[d_idx] = d_vh[d_parent_idx[d_idx]]
+
+    def loop_all(self, d_sum_Ak, d_pa_to_split, d_parent_idx, d_idx, s_m, s_rho,
+                 s_parent_idx, NBRS, N_NBRS):
+        i = declare('int')
+        s_idx = declare('long')
+        if d_pa_to_split[d_idx]:
+            for i in range(N_NBRS):
+                s_idx = NBRS[i]
+                if s_parent_idx[s_idx] == d_parent_idx[d_idx]:
+                    d_sum_Ak[d_idx] += s_m[s_idx] / s_rho[s_idx]
+
+    def post_loop(self, d_idx, d_parent_idx, d_A, d_sum_Ak, d_dw, d_rho, d_u,
+                  d_uh, d_vh, d_v, d_u_parent, d_v_parent, d_uh_parent,
+                  d_vh_parent, t):
+        if d_parent_idx[d_idx]:
+            cv = d_A[d_parent_idx[d_idx]] / d_sum_Ak[d_parent_idx[d_idx]]
+            dw_ratio = d_dw[d_parent_idx[d_idx]] / (d_rho[d_idx]/self.rhow)
+            d_u[d_idx] = cv * dw_ratio * d_u_parent[d_idx]
+            d_uh[d_idx] = cv * dw_ratio * d_uh_parent[d_idx]
+            d_v[d_idx] = cv * dw_ratio * d_v_parent[d_idx]
+            d_vh[d_idx] = cv * dw_ratio * d_vh_parent[d_idx]
+            d_parent_idx[d_idx] = 0
 
 
 class FindMergeable(Equation):
@@ -340,7 +385,6 @@ class SWEIntegrator(Integrator):
         # Call any post-stage functions.
         self.do_post_stage(0.5*dt, 1)
 
-
         # Correct
         self.stage2()
 
@@ -451,24 +495,24 @@ class SummationDensity(Equation):
         d_summation_rho[d_idx] += s_m[s_idx] * WI
 
 
-#class InitialGuessDensityAndSmoothingLengthVacondio(Equation):
-#    def __init__(self, dim, dest, sources):
-#        super(InitialGuessDensityAndSmoothingLengthVacondio,
-#              self).__init__(dest, sources)
-#        self.dim = dim
-#
-#    def initialize(self, d_arho, d_idx):
-#        d_arho[d_idx] = 0
-#
-#    def loop(self, d_arho, d_idx, s_m, s_rho, s_idx, d_u_prev_step,
-#             d_v_prev_step, s_u_prev_step, s_v_prev_step, DWI):
-#        tmp1 = (d_u_prev_step[s_idx]-s_u_prev_step[d_idx]) * DWI[0]
-#        tmp2 = (d_v_prev_step[s_idx]-s_v_prev_step[d_idx]) * DWI[1]
-#        d_arho[d_idx] += (s_m[s_idx]/s_rho[s_idx]) * (tmp1 + tmp2)
-#
-#    def post_loop(self, d_rho, d_h, dt, d_arho, d_idx):
-#        d_rho[d_idx] = d_rho[d_idx] + dt*d_rho[d_idx]*d_arho[d_idx]
-#        d_h[d_idx] = d_h[d_idx] - (dt/self.dim)*d_h[d_idx]*d_arho[d_idx]
+class InitialGuessDensityAndSmoothingLengthVacondio(Equation):
+    def __init__(self, dim, dest, sources):
+        super(InitialGuessDensityAndSmoothingLengthVacondio,
+              self).__init__(dest, sources)
+        self.dim = dim
+
+    def initialize(self, d_arho, d_idx):
+        d_arho[d_idx] = 0
+
+    def loop(self, d_arho, d_idx, s_m, s_rho, s_idx, d_u_prev_step,
+             d_v_prev_step, s_u_prev_step, s_v_prev_step, DWI):
+        tmp1 = (d_u_prev_step[s_idx]-s_u_prev_step[d_idx]) * DWI[0]
+        tmp2 = (d_v_prev_step[s_idx]-s_v_prev_step[d_idx]) * DWI[1]
+        d_arho[d_idx] += (s_m[s_idx]/s_rho[s_idx]) * (tmp1 + tmp2)
+
+    def post_loop(self, d_rho, d_h, dt, d_arho, d_idx):
+        d_rho[d_idx] = d_rho[d_idx] + dt*d_rho[d_idx]*d_arho[d_idx]
+        d_h[d_idx] = d_h[d_idx] - (dt/self.dim)*d_h[d_idx]*d_arho[d_idx]
 
 
 class InitialGuessDensity(Equation):
@@ -569,41 +613,6 @@ class SWEOS(Equation):
         d_dt_cfl[d_idx] = d_cs[d_idx] + (d_u[d_idx]**2 + d_v[d_idx]**2)**0.5
 
 
-class DaughterVelocityEval(Equation):
-    def __init__(self, rhow, dest, sources):
-        self.rhow = rhow
-        super(DaughterVelocityEval, self).__init__(dest, sources)
-
-    def initialize(self, d_sum_Ak, d_idx, d_m, d_rho, d_u, d_v, d_uh,
-                   d_vh, d_u_parent, d_v_parent, d_uh_parent, d_vh_parent,
-                   d_parent_idx):
-        d_sum_Ak[d_idx] = 0.0
-        d_u_parent[d_idx] = d_u[d_parent_idx[d_idx]]
-        d_uh_parent[d_idx] = d_uh[d_parent_idx[d_idx]]
-        d_v_parent[d_idx] = d_v[d_parent_idx[d_idx]]
-        d_vh_parent[d_idx] = d_vh[d_parent_idx[d_idx]]
-
-    def loop_all(self, d_sum_Ak, d_pa_to_split, d_parent_idx, d_idx, s_m, s_rho,
-                 s_parent_idx, NBRS, N_NBRS):
-        i = declare('int')
-        s_idx = declare('long')
-        if d_pa_to_split[d_idx]:
-            for i in range(N_NBRS):
-                s_idx = NBRS[i]
-                if s_parent_idx[s_idx] == d_parent_idx[d_idx]:
-                    d_sum_Ak[d_idx] += s_m[s_idx] / s_rho[s_idx]
-
-    def post_loop(self, d_idx, d_parent_idx, d_A, d_sum_Ak, d_dw, d_rho, d_u,
-                  d_uh, d_vh, d_v, d_u_parent, d_v_parent, d_uh_parent, 
-                  d_vh_parent):
-        if d_parent_idx[d_idx]:
-            cv = d_A[d_parent_idx[d_idx]] / d_sum_Ak[d_parent_idx[d_idx]]
-            dw_ratio = d_dw[d_parent_idx[d_idx]] / (d_rho[d_idx]/self.rhow)
-            d_u[d_idx] = cv * dw_ratio * d_u_parent[d_idx]
-            d_uh[d_idx] = cv * dw_ratio * d_uh_parent[d_idx]
-            d_v[d_idx] = cv * dw_ratio * d_v_parent[d_idx]
-            d_vh[d_idx] = cv * dw_ratio * d_vh_parent[d_idx]
-            d_parent_idx[d_idx] = 0
 
 
 def mu_calc(hi=1.0, hj=1.0, rhoi=1.0, rhoj=1.0, csi=1.0, csj=1.0,
