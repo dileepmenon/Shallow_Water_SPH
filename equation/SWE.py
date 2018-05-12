@@ -450,7 +450,9 @@ class CheckConvergenceDensityResidual(Equation):
 
     def reduce(self, dst, t, dt):
         epsilon = max(dst.psi)
+        #print(t, epsilon)
         if epsilon <= 1e-3:
+            #print(t, '-------------------------------------------------')
             self.eqn_has_converged = 1
 
     def converged(self):
@@ -495,9 +497,9 @@ class SummationDensity(Equation):
         d_summation_rho[d_idx] += s_m[s_idx] * WI
 
 
-class InitialGuessDensityAndSmoothingLengthVacondio(Equation):
+class InitialGuessDensityVacondio(Equation):
     def __init__(self, dim, dest, sources):
-        super(InitialGuessDensityAndSmoothingLengthVacondio,
+        super(InitialGuessDensityVacondio,
               self).__init__(dest, sources)
         self.dim = dim
 
@@ -506,8 +508,8 @@ class InitialGuessDensityAndSmoothingLengthVacondio(Equation):
 
     def loop(self, d_arho, d_idx, s_m, s_rho, s_idx, d_u_prev_step,
              d_v_prev_step, s_u_prev_step, s_v_prev_step, DWI):
-        tmp1 = (d_u_prev_step[s_idx]-s_u_prev_step[d_idx]) * DWI[0]
-        tmp2 = (d_v_prev_step[s_idx]-s_v_prev_step[d_idx]) * DWI[1]
+        tmp1 = (d_u_prev_step[d_idx]-s_u_prev_step[s_idx]) * DWI[0]
+        tmp2 = (d_v_prev_step[d_idx]-s_v_prev_step[s_idx]) * DWI[1]
         d_arho[d_idx] += (s_m[s_idx]/s_rho[s_idx]) * (tmp1 + tmp2)
 
     def post_loop(self, d_rho, d_h, dt, d_arho, d_idx):
@@ -525,8 +527,8 @@ class InitialGuessDensity(Equation):
 
     def loop(self, d_exp_lambda, d_u_prev_step, d_v_prev_step, d_alpha, d_idx,
              s_m, s_u_prev_step, s_v_prev_step, s_idx, DWI, dt, t):
-        a1 = (s_u_prev_step[s_idx]-d_u_prev_step[d_idx]) * DWI[0]
-        a2 = (s_v_prev_step[s_idx]-d_v_prev_step[d_idx]) * DWI[1]
+        a1 = (d_u_prev_step[d_idx]-s_u_prev_step[s_idx]) * DWI[0]
+        a2 = (d_v_prev_step[d_idx]-s_v_prev_step[s_idx]) * DWI[1]
         const = (self.dim*dt) / d_alpha[d_idx]
         d_exp_lambda[d_idx] +=  const * (s_m[s_idx]*(a1+a2))
 
@@ -699,7 +701,6 @@ class ParticleAccelerations(Equation):
                                         d_cs[d_idx], s_cs[s_idx], muij)
         else:
             pi_visc = 0
-
 
         d_tu[d_idx] += s_m[s_idx] * ((self.ct*tmp1 + 0.5*pi_visc)*DWJ[0] +
                                      (self.ct*tmp2 + 0.5*pi_visc)*DWI[0])
