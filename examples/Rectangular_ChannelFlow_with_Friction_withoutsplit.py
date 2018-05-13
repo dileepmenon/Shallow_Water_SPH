@@ -42,7 +42,7 @@ x_max_inlet = 0.
 x_min_inlet = -dx * n_inlet
 l_tunnel = 800.
 x_min_outlet = l_tunnel
-x_max_outlet = l_tunnel + n_outlet*dx
+x_max_outlet = l_tunnel + n_outlet*0.95*dx
 
 
 class RectangularOpenChannelFlow(Application):
@@ -116,13 +116,13 @@ class RectangularOpenChannelFlow(Application):
 
         # Closed Boundary
         xcb_top = np.arange(x_min_inlet, x_max_outlet+dx, dx)
-        ycb_top = np.concatenate((ones_like(xcb_top) * y_max+0.5*dx,
-                                  ones_like(xcb_top) * (y_max+1.5*dx)), axis=0)
+        ycb_top = np.concatenate((ones_like(xcb_top)*(y_max+0.5*dx),
+                                  ones_like(xcb_top)*(y_max+1.5*dx)), axis=0)
         xcb_top = np.tile(xcb_top, 2)
 
         xcb_bottom = np.arange(x_min_inlet, x_max_outlet+dx, dx)
         ycb_bottom = np.concatenate((zeros_like(xcb_bottom)-0.5*dx,
-                                    ones_like(xcb_bottom) * (-1.5*dx)), axis=0)
+                                     zeros_like(xcb_bottom)-1.5*dx), axis=0)
         xcb_bottom = np.tile(xcb_bottom, 2)
 
         xcb_all = np.concatenate((xcb_top, xcb_bottom), axis=0)
@@ -146,6 +146,7 @@ class RectangularOpenChannelFlow(Application):
         i_pa = particle_arrays['inlet']
         o_pa = particle_arrays['outlet']
         b_pa = particle_arrays['bed']
+        cb_pa = particle_arrays['boundary']
 
         inlet = SimpleInlet(
             i_pa, f_pa, spacing=dx, n=n_inlet, axis='x', xmin=x_min_inlet,
@@ -156,11 +157,7 @@ class RectangularOpenChannelFlow(Application):
             ymax=y_max
         )
 
-        compute_initial_props([i_pa, f_pa, o_pa, b_pa])
-
-        #alpha = max(f_pa.alpha)
-        #i_pa.alpha = ones_like(i_pa.alpha) * alpha
-        #o_pa.alpha = ones_like(o_pa.alpha) * alpha
+        compute_initial_props([i_pa, f_pa, o_pa, b_pa, cb_pa])
 
         return [inlet, outlet]
 
@@ -208,13 +205,9 @@ class RectangularOpenChannelFlow(Application):
             ),
             Group(
                 equations=[
-                    #CorrectionFactorVariableSmoothingLength(
-                    #    dest='inlet', sources=['fluid', 'inlet', 'boundary']),
                     CorrectionFactorVariableSmoothingLength(
                         dest='fluid', sources=['fluid', 'inlet', 'outlet',
                             'boundary']),
-                        #CorrectionFactorVariableSmoothingLength(
-                        #Corrdest='outlet', sources=['fluid', 'outlet', 'boundary']),
                         ]
                 ),
             Group(
@@ -246,7 +239,7 @@ class RectangularOpenChannelFlow(Application):
                 equations=[
                     ParticleAccelerations(dim, dest='fluid', sources=['fluid',
                                     'inlet', 'outlet', 'boundary'], bx=-0.001,
-                                    u_only=True),
+                                    ),
                     ]
                 ),
             ]
@@ -261,20 +254,12 @@ class RectangularOpenChannelFlow(Application):
 
     def post_step(self, solver):
         for pa in self.particles:
-            if pa.name == 'fluid':
-                f_pa = pa
             if pa.name == 'outlet':
                 o_pa = pa
-            if pa.name == 'inlet':
-                i_pa = pa
         arr_ones = ones_like(o_pa.rho)
-        #o_pa.h = arr_ones * hdx * dx * 2
         o_pa.alpha = arr_ones * dim * rho_w * d
         o_pa.dw = arr_ones * d
         o_pa.cs = sqrt(9.8 * o_pa.dw)
-        #idx = np.where(f_pa.h == hdx * dx * 2)
-        #f_pa.h[idx] = hdx * dx
-        #self.nnps.update()
 
 def compute_initial_props(particles):
     one_time_equations = [
@@ -299,12 +284,9 @@ def compute_initial_props(particles):
                     ),
                 Group(
                     equations=[
-                        #CorrectionFactorVariableSmoothingLength(
-                        #    dest='inlet', sources=['fluid', 'inlet']),
                         CorrectionFactorVariableSmoothingLength(
-                            dest='fluid', sources=['fluid', 'inlet', 'outlet']),
-                        #CorrectionFactorVariableSmoothingLength(
-                        #    dest='outlet', sources=['fluid', 'outlet']),
+                            dest='fluid', sources=['fluid', 'inlet', 'outlet',
+                                                   'boundary']),
                         ]
                     ),
             ]
