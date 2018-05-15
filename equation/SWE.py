@@ -731,9 +731,24 @@ class BedElevation(Equation):
     def initialize(self, d_b, d_idx):
         d_b[d_idx] = 0.0
 
-    def loop(self, d_b, d_idx, s_b, s_idx, WJ, s_V, RIJ):
+    def loop_all(self, d_shep_corr, d_x, d_y, d_idx, s_x, s_y, s_m, s_rho,
+                 s_idx, s_h, KERNEL, NBRS, N_NBRS):
+        i = declare('int')
+        xij = declare('matrix(3)')
+        rij = 0.0
+        corr_sum = 0.0
+        for i in range(N_NBRS):
+            s_idx = NBRS[i]
+            xij[0] = d_x[d_idx] - s_x[s_idx]
+            xij[1] = d_y[d_idx] - s_y[s_idx]
+            rij = sqrt(xij[0]*xij[0] + xij[1]*xij[1])
+            corr_sum += (s_m[s_idx]/s_rho[s_idx]) * KERNEL.kernel(xij, rij,
+                                                                  s_h[s_idx])
+        d_shep_corr[d_idx] = corr_sum
+
+    def loop(self, d_b, d_shep_corr, d_idx, s_b, s_idx, WJ, s_V, RIJ):
         if RIJ > 1e-6:
-            d_b[d_idx] += s_b[s_idx] * WJ * s_V[s_idx]
+            d_b[d_idx] += s_b[s_idx] * (WJ/d_shep_corr[d_idx]) * s_V[s_idx]
 
 
 class BedGradient(Equation):
