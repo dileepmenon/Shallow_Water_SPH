@@ -664,7 +664,7 @@ class ParticleAccelerations(Equation):
         self.byy = byy
         self.u_only = u_only
         self.v_only = v_only
-        self.alpha = 0.0
+        self.alpha = alpha
         if visc_option == 1:
             self.viscous_func = artificial_visc
         else:
