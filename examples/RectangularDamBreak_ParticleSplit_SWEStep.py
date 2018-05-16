@@ -3,7 +3,6 @@ from numpy import ( ones_like, zeros, zeros_like, mgrid, pi,
                     arange, sqrt, concatenate, sin, cos, where )
 
 # PySPH base
-from pysph.base.utils import get_particle_array as gpa
 from pysph.base.kernels import CubicSpline
 
 # PySPH solver and integrator
@@ -14,6 +13,7 @@ from pysph.sph.integrator_step import IntegratorStep
 # PySPH equations
 from pysph.sph.equation import Group
 from equation.SWE import *
+from equation.SWE import get_particle_array_swe as gpa_swe
 
 # PySPH Evaluator
 from pysph.tools.sph_evaluator import SPHEvaluator
@@ -25,10 +25,9 @@ g = 9.81
 hdx = 2.3
 d = 10.0
 dx = 20.
-h0 = hdx * dx
 dim = 2
 A_max = 1.5 * dx**2
-h_max = 2 * h0
+h_max = 2 * hdx * dx
 
 
 class RectangularDamBreak(Application):
@@ -39,58 +38,14 @@ class RectangularDamBreak(Application):
         y = y.ravel()
 
         m = ones_like(x) * dx * dx * rho_w * d
-        h = ones_like(x) * h0
+        h = ones_like(x) * hdx * dx
+        h0 = ones_like(x) * hdx * dx
 
-        rho = ones_like(x) * rho_w
-        rho0 = ones_like(x) * rho_w
-        rho_prev_iter = ones_like(x) * rho_w
+        rho = ones_like(x) * rho_w * d
+        rho0 = ones_like(x) * rho_w * d
 
-        A = m / rho
-
-        dw = ones_like(x) * d
-        cs = ones_like(x) * sqrt(9.8*d)
-        p = ones_like(x) * 0.5 * rho_w * g * d**2
-        alpha = ones_like(x)
-
-        pa_to_split = zeros_like(x)
-        sum_Ak = zeros_like(x)
-        psi = zeros_like(x)
-
-        tv = zeros_like(x)
-        tu = zeros_like(x)
-
-        u = zeros_like(x)
-        u_parent = zeros_like(x)
-        uh = zeros_like(x)
-        u_prev_iter = zeros_like(x)
-        v = zeros_like(x)
-        v_parent = zeros_like(x)
-        vh = zeros_like(x)
-        v_prev_iter = zeros_like(x)
-
-        dt_cfl = ones_like(x)
-
-        au = zeros_like(x)
-        av = zeros_like(x)
-
-        Sfx = zeros_like(x)
-        Sfy = zeros_like(x)
-
-        consts = {'tmp_comp': [0.0, 0.0]}
-
-        pa = gpa(x=x, y=y, m=m, rho0=rho0, rho=rho, A=A, psi=psi, cs=cs,
-                 alpha=alpha, h=h, u=u, v=v, uh=uh, vh=vh, Sfx=Sfx, Sfy=Sfy,
-                 u_prev_iter=u_prev_iter, sum_Ak=sum_Ak, u_parent=u_parent,
-                 v_parent=v_parent, pa_to_split=pa_to_split, dt_cfl=dt_cfl,
-                 v_prev_iter=v_prev_iter, au=au, av=av, tv=tv, tu=tu, p=p,
-                 rho_prev_iter=rho_prev_iter, dw=dw, name='fluid',
-                 constants=consts)
-
-        pa.add_property('parent_idx', type='int')
-
-        props = ['parent_idx', 'A', 'u', 'v', 'm', 'tu', 'tv', 'dw', 'au',
-                'av', 'h', 'rho', 'p', 'pa_to_split']
-        pa.add_output_arrays(props)
+        pa = gpa_swe(x=x, y=y, m=m, rho0=rho0, rho=rho, h=h, h0=h0,
+                     name='fluid')
 
         compute_initial_props([pa])
         return [pa]
@@ -103,7 +58,7 @@ class RectangularDamBreak(Application):
             kernel=kernel,
             dim=2,
             integrator=integrator,
-            cfl=0.1,
+            cfl=0.3,
             adaptive_timestep=True,
             output_at_times=[10, 20, 30, 40, 50],
             tf=tf
@@ -116,8 +71,9 @@ class RectangularDamBreak(Application):
                 equations=[
                     Group(
                         equations=[
-                            ScatterDensityEvalNextIteration(dest='fluid',
-                                                            sources=['fluid',]),
+                            GatherDensityEvalNextIteration(
+                                dest='fluid', sources=['fluid',]
+                                ),
                             ]
                         ),
                     Group(
@@ -127,20 +83,21 @@ class RectangularDamBreak(Application):
                         ),
                     Group(
                         equations=[
-                            UpdateSmoothingLength(h0, dim, dest='fluid')
+                            UpdateSmoothingLength(dim, dest='fluid')
                             ], update_nnps=True
                         ),
                     Group(
                         equations=[
                             CheckConvergenceDensityResidual(dest='fluid')
                             ],
-                    )], iterate=True, max_iterations=100
+                    )], iterate=True, max_iterations=10
             ),
             Group(
                 equations=[
-                    CorrectionFactorVariableSmoothingLength(dest='fluid',
-                                                            sources=['fluid',]),
-            ]),
+                    CorrectionFactorVariableSmoothingLength(
+                        dest='fluid', sources=['fluid',]),
+                    ]
+                ),
             Group(
                 equations=[
                     DaughterVelocityEval(rho_w, dest='fluid',
@@ -176,12 +133,6 @@ class RectangularDamBreak(Application):
 
 def compute_initial_props(particles):
     one_time_equations = [
-                Group(
-                    equations=[
-                        InitialTimeScatterSummationDensity(dest='fluid',
-                                                           sources=['fluid',]),
-                        ]
-                    ),
                 Group(
                     equations=[
                         SWEOS(dest='fluid'),
