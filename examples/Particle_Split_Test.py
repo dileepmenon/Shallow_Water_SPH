@@ -16,6 +16,7 @@ from pysph.sph.integrator_step import IntegratorStep
 # PySPH equations
 from pysph.sph.equation import Group
 from equation.SWE import *
+from equation.SWE import get_particle_array_swe as gpa_swe
 
 # PySPH Evaluator
 from pysph.tools.sph_evaluator import SPHEvaluator
@@ -30,71 +31,55 @@ g = 9.81
 hdx = 1.2
 d = 1.0
 dx = 50
-h0 = hdx * dx
 dim = 2
-h_max = 2 * h0
+h_max = 2 * hdx * dx
+len_fluid_domain = 1400
 
 
 class ParticleSplitTest(Application):
     def create_particles(self):
-        x, y = mgrid[0:1400+1e-4:dx, 0:1400+1e-4:dx]
+        # Fluid particles
+        x, y = mgrid[0:len_fluid_domain+1e-4:dx, 0:len_fluid_domain+1e-4:dx]
         x = x.ravel()
         y = y.ravel()
 
         idx_inner_pa_to_split = []
         for idx, (x_i, y_i) in enumerate(zip(x, y)):
-            if 300<=x_i<=1100 and 300<=y_i<=1100:
+            if (6*dx<=x_i<=len_fluid_domain-6*dx and
+                6*dx<=y_i<=len_fluid_domain-6*dx):
                 idx_inner_pa_to_split.append(idx)
         idx_inner_pa_to_split = numpy.array(idx_inner_pa_to_split)
 
-        m = ones_like(x) * dx * dx * rho_w
-        h = ones_like(x) * h0
+        m = ones_like(x) * dx * dx * rho_w * d
+        h = ones_like(x) * hdx * dx
+        h0 = ones_like(x) * hdx * dx
 
-        rho = ones_like(x) * rho_w
-        rho0 = ones_like(x) * rho_w
-        rho_prev_iter = zeros_like(x)
-        rho_residual= zeros_like(x)
-        positive_rho_residual = zeros_like(x)
-        summation_rho = zeros_like(x)
+        rho = ones_like(x) * rho_w * d
+        rho0 = ones_like(x) * rho_w * d
 
         A = m / rho
         A[idx_inner_pa_to_split] = 3000
 
-        dw = ones_like(x) * d
-        p = ones_like(x) * 0.5 * rho_w * g * d**2
+        pa = gpa_swe(x=x, y=y, m=m, rho0=rho0, rho=rho, h=h, h0=h0, A=A,
+                     name='fluid')
 
-        pa_to_split = zeros_like(x)
-        parent_idx = zeros_like(x)
-        alpha = zeros_like(x)
-        psi = zeros_like(x)
-        cs = ones_like(x)
-        dt_cfl = ones_like(x)
+        # Boundary Particles
+        x, y = mgrid[-2*dx:len_fluid_domain+2*dx+1e-4:dx,
+                     -2*dx:len_fluid_domain+2*dx+1e-4:dx]
+        x = x.ravel()
+        y = y.ravel()
+        boun_idx = np.where( (x < 0) | (y < 0) | (x > len_fluid_domain) | (y >
+                             len_fluid_domain) )
+        x = x[boun_idx]
+        y = y[boun_idx]
+        m = ones_like(x) * dx * dx * rho_w * d
+        h = ones_like(x) * hdx * dx
+        rho = ones_like(x) * rho_w * d
 
-        tv = zeros_like(x)
-        tu = zeros_like(x)
+        boundary = gpa_swe(name='boundary', x=x, y=y, m=m, h=h, rho=rho)
 
-        u = zeros_like(x)
-        u_prev_iter = zeros_like(x)
-        v = zeros_like(x)
-        v_prev_iter = zeros_like(x)
-
-        au = zeros_like(x)
-        av = zeros_like(x)
-
-        consts = {'tmp_comp': [0.0, 0.0]}
-
-        pa = gpa(x=x, y=y, m=m, rho0=rho0, rho=rho, alpha=alpha,
-                 rho_prev_iter=rho_prev_iter, psi=psi,
-                 h=h, u=u, v=v, u_prev_iter=u_prev_iter,
-                 v_prev_iter=v_prev_iter, au=au, av=av, A=A, cs=cs,
-                 dt_cfl=dt_cfl, tv=tv, tu=tu, p=p, dw=dw,
-                 parent_idx=parent_idx, pa_to_split=pa_to_split, name='fluid',
-                 constants=consts)
-
-        props = ['m', 'h', 'rho', 'p', 'A', 'pa_to_split']
-        pa.add_output_arrays(props)
         compute_initial_props([pa])
-        return [pa]
+        return [pa, boundary]
 
     def create_solver(self):
         kernel = CubicSpline(dim=2)
@@ -111,12 +96,18 @@ class ParticleSplitTest(Application):
 
     def create_equations(self):
         equations = [
-            Group(
-                equations=[
+                Group(
+                    equations=[
+                    Group(
+                        equations=[
+                            InitialGuessDensityVacondio(dim, dest='fluid',
+                                sources=['fluid',]),
+                                ]
+                            ),
                     Group(
                         equations=[
                             GatherDensityEvalNextIteration(dest='fluid',
-                                                            sources=['fluid',]),
+                                                sources=['fluid', 'boundary']),
                             ]
                         ),
                     Group(
@@ -126,7 +117,7 @@ class ParticleSplitTest(Application):
                         ),
                     Group(
                         equations=[
-                            UpdateSmoothingLength(h0, dim, dest='fluid')
+                            UpdateSmoothingLength(dim, dest='fluid')
                             ], update_nnps=True
                         ),
                     Group(
@@ -147,8 +138,6 @@ class ParticleSplitTest(Application):
     def post_process(self):
         rho_exact = 1e4
         rho_num = self.particles[0].rho
-        # Filter values of rho, ignoring values of boundary particles
-        rho_num = rho_num[rho_num >= 10000]
         print('\nMax rho is %0.3f '%max(rho_num))
         l2_err_rho = sqrt(np.sum((rho_exact - rho_num)**2)
                           / len(rho_num))
@@ -159,10 +148,9 @@ def compute_initial_props(particles):
     one_time_equations = [
                 Group(
                     equations=[
-                        InitialTimeGatherSummationDensity(dest='fluid',
-                                                           sources=['fluid',]),
                         CheckForParticlesToSplit(dest='fluid', h_max=h_max,
-                                                 A_max=2900)
+                            A_max=2900, x_min=300, x_max=1100, y_min=300,
+                            y_max=1100)
                             ], update_nnps=False
                     )
             ]
