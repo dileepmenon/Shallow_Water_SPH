@@ -68,6 +68,10 @@ class RectangularDamBreak(Application):
             Group(
                 equations=[
                     InitialGuessDensity(dim, dest='fluid', sources=['fluid',],),
+                    ]
+                ),
+            Group(
+                equations=[
                     UpdateSmoothingLength(dim, dest='fluid')
                     ], update_nnps=True
                 ),
