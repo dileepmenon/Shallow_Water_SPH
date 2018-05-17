@@ -358,9 +358,6 @@ class SWEStep(IntegratorStep):
                    d_idx):
         d_u_prev_step[d_idx] = d_u[d_idx]
         d_v_prev_step[d_idx] = d_v[d_idx]
-        #if d_uh[d_idx] == 0.0 and d_vh[d_idx] == 0.0:
-        #    d_uh[d_idx] = d_u[d_idx]
-        #    d_vh[d_idx] = d_v[d_idx]
 
     def stage1(self, d_uh, d_vh, d_idx, d_au, d_av, dt):
         d_uh[d_idx] +=  dt * d_au[d_idx]
