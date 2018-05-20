@@ -727,10 +727,10 @@ def viscosity_LF(alpha=1.0, rij2=1.0, hi=1.0, hj=1.0, rhoi=1.0, rhoj=1.0,
 
 class ParticleAcceleration(Equation):
     def __init__(self, dim, dest, sources, u_only=False, v_only=False, alpha=0,
-                 visc_option=2):
+                 visc_option=2, rhow=1000.0):
         super(ParticleAcceleration, self).__init__(dest, sources)
         self.g = 9.81
-        self.rhow = 1000.0
+        self.rhow = rhow
         self.ct = self.g / (2*self.rhow)
         self.dim = dim
         self.u_only = u_only
@@ -926,15 +926,17 @@ class BoundaryInnerReimannStateEval(Equation):
 
 
 class SubCriticalInFlow(Equation):
-    def __init__(self, dest):
+    def __init__(self, dest, rhow=1000.0):
         self.g = 9.8
+        self.rhow = rhow
         super(SubCriticalInFlow, self).__init__(dest, None)
 
     def post_loop(self, d_dw, d_dw_inner_reimann, d_u, d_u_inner_reimann,
-                  d_idx):
+                  d_rho, d_idx):
         const = 1. / (2.*sqrt(self.g))
         d_dw[d_idx] = (const*(d_u[d_idx] - d_u_inner_reimann[d_idx])
                        + sqrt(d_dw_inner_reimann[d_idx]))**2
+        d_rho[d_idx] = d_dw[d_idx] * self.rhow
 
 
 class SubCriticalOutFlow(Equation):
@@ -952,21 +954,17 @@ class SubCriticalOutFlow(Equation):
 
 
 class SuperCriticalOutFlow(Equation):
-    def post_loop(self, d_dw, d_dw_inner_reimann, d_u, d_u_inner_reimann,
-                  d_v, d_v_inner_reimann, d_idx):
+    def __init__(self, dest, rhow=1000.0):
+        self.rhow = rhow
+        super(SuperCriticalOutFlow, self).__init__(dest, None)
+
+    def post_loop(self, d_dw, d_rho, d_dw_inner_reimann, d_u,
+                  d_u_inner_reimann, d_v, d_v_inner_reimann, d_idx):
         d_u[d_idx] = d_u_inner_reimann[d_idx]
         d_v[d_idx] = d_v_inner_reimann[d_idx]
         d_dw[d_idx] = d_dw_inner_reimann[d_idx]
+        d_rho[d_idx] = d_dw[d_idx] * self.rhow
 
-
-
-#class InletDensityEvalFromDepth(Equation):
-#    def __init__(self, dest, rhow=1000.0):
-#        self.rhow = rhow
-#        super(InletDensityEvalFromDepth, self).__init__(dest, None)
-#
-#    def post_loop(self, d_rho, d_idx, d_dw):
-#        d_rho[d_idx] = d_dw[d_idx] * self.rhow
 
 class GradientCorrection(Equation):
     r"""**Kernel Gradient Correction**
