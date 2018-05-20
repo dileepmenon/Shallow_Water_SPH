@@ -4,6 +4,7 @@ from pysph.sph.integrator import Integrator
 from pysph.base.utils import get_particle_array
 from pysph.base.reduce_array import serial_reduce_array, parallel_reduce_array
 from pysph.base.cython_generator import declare
+from pysph.sph.wc.density_correction import gj_solve
 
 from numpy import sqrt, cos, sin, ones, zeros, pi
 import numpy as np
@@ -63,7 +64,7 @@ def get_particle_array_swe(constants=None, **props):
     # default property arrays to save out.
     props = ['x', 'y', 'h', 'rho', 'p', 'A', 'uh', 'vh', 'u', 'v', 'm', 'tu',
              'tv', 'dw', 'alpha', 'au', 'av', 'Sfx', 'Sfy', 'n', 'cs', 'pid',
-             'gid', 'tag']
+             'gid', 'tag', 'b', 'bx', 'by']
     pa.set_output_arrays(props)
 
     return pa
@@ -645,20 +646,93 @@ def viscosity_LF(alpha=1.0, rij2=1.0, hi=1.0, hj=1.0, rhoi=1.0, rhoj=1.0,
     return pi_visc
 
 
-class ParticleAccelerations(Equation):
-    def __init__(self, dim, dest, sources, bx=0, by=0, bxx=0,
-                 bxy=0, byy=0, u_only=False, v_only=False,
-                 alpha=0, visc_option=2):
-        super(ParticleAccelerations, self).__init__(dest, sources)
+#class ParticleAccelerations(Equation):
+#    def __init__(self, dim, dest, sources, bx=0, by=0, bxx=0,
+#                 bxy=0, byy=0, u_only=False, v_only=False,
+#                 alpha=0, visc_option=2):
+#        super(ParticleAccelerations, self).__init__(dest, sources)
+#        self.g = 9.81
+#        self.rhow = 1000.0
+#        self.ct = self.g / (2*self.rhow)
+#        self.dim = dim
+#        self.bx = bx
+#        self.by = by
+#        self.bxx = bxx
+#        self.bxy = bxy
+#        self.byy = byy
+#        self.u_only = u_only
+#        self.v_only = v_only
+#        self.alpha = alpha
+#        if visc_option == 1:
+#            self.viscous_func = artificial_visc
+#        else:
+#            self.viscous_func = viscosity_LF
+#
+#    def initialize(self, d_idx, d_tu, d_tv):
+#        d_tu[d_idx] = 0.0
+#        d_tv[d_idx] = 0.0
+#
+#    def loop(self, d_x, d_y, s_x, s_y, d_rho, d_idx, s_m, s_idx, s_rho, d_m,
+#             DWI, DWJ, d_au, d_av, s_alpha, d_alpha, s_p, d_p, d_tu, s_dw, d_dw,
+#             t, s_tu, d_tv, s_tv, d_h, s_h, d_u, s_u, d_v, s_v, d_cs, s_cs):
+#        #tmp1 = (s_rho[s_idx]*self.dim) / s_alpha[s_idx]
+#        #tmp2 = (d_rho[d_idx]*self.dim) / d_alpha[d_idx]
+#        tmp1 = (s_dw[s_idx]*self.rhow*self.dim) / s_alpha[s_idx]
+#        tmp2 = (d_dw[d_idx]*self.rhow*self.dim) / d_alpha[d_idx]
+#
+#        uij = d_u[d_idx] - s_u[s_idx]
+#        vij = d_v[d_idx] - s_v[s_idx]
+#        xij = d_x[d_idx] - s_x[s_idx]
+#        yij = d_y[d_idx] - s_y[s_idx]
+#        rij2 = xij**2 + yij**2
+#        uij_dot_xij = uij * xij
+#        vij_dot_yij = vij * yij
+#        velij_dot_rij = uij_dot_xij + vij_dot_yij
+#
+#        muij = mu_calc(d_h[d_idx], s_h[s_idx], d_rho[d_idx], s_rho[s_idx],
+#                       d_cs[d_idx], s_cs[s_idx], velij_dot_rij, rij2)
+#
+#
+#        if velij_dot_rij < 0:
+#            pi_visc = self.viscous_func(self.alpha, rij2, d_h[d_idx],
+#                                        s_h[s_idx], d_rho[d_idx], s_rho[s_idx],
+#                                        d_cs[d_idx], s_cs[s_idx], muij)
+#        else:
+#            pi_visc = 0
+#
+#        d_tu[d_idx] += s_m[s_idx] * ((self.ct*tmp1 + 0.5*pi_visc)*DWJ[0] +
+#                                     (self.ct*tmp2 + 0.5*pi_visc)*DWI[0])
+#
+#        d_tv[d_idx] += s_m[s_idx] * ((self.ct*tmp1 + 0.5*pi_visc)*DWJ[1] +
+#                                     (self.ct*tmp2 + 0.5*pi_visc)*DWI[1])
+#
+#    def _get_helpers_(self):
+#        return [mu_calc, artificial_visc, viscosity_LF]
+#
+#    def post_loop(self, d_idx, d_u, d_v, d_tu, d_tv, d_au, d_av, d_Sfx, d_Sfy):
+#        bx =  self.bx; by = self.by
+#        bxx = self.bxx; bxy = self.bxy
+#        byy = self.byy
+#        vikivi = d_u[d_idx]*d_u[d_idx]*bxx + 2*d_u[d_idx]*d_v[d_idx]*bxy + \
+#                 d_v[d_idx]*d_v[d_idx]*byy
+#        tidotgradbi = d_tu[d_idx]*bx + d_tv[d_idx]*by
+#        gradbidotgradbi = bx**2 + by**2
+#        temp3 = self.g + vikivi - tidotgradbi
+#        temp4 = 1 + gradbidotgradbi
+#        if not self.v_only:
+#            d_au[d_idx] = -(temp3/temp4)*bx - d_tu[d_idx] - d_Sfx[d_idx]
+#        if not self.u_only:
+#            d_av[d_idx] = -(temp3/temp4)*by - d_tv[d_idx] - d_Sfy[d_idx]
+
+
+class ParticleAcceleration(Equation):
+    def __init__(self, dim, dest, sources, u_only=False, v_only=False, alpha=0,
+                 visc_option=2):
+        super(ParticleAcceleration, self).__init__(dest, sources)
         self.g = 9.81
         self.rhow = 1000.0
         self.ct = self.g / (2*self.rhow)
         self.dim = dim
-        self.bx = bx
-        self.by = by
-        self.bxx = bxx
-        self.bxy = bxy
-        self.byy = byy
         self.u_only = u_only
         self.v_only = v_only
         self.alpha = alpha
@@ -674,8 +748,6 @@ class ParticleAccelerations(Equation):
     def loop(self, d_x, d_y, s_x, s_y, d_rho, d_idx, s_m, s_idx, s_rho, d_m,
              DWI, DWJ, d_au, d_av, s_alpha, d_alpha, s_p, d_p, d_tu, s_dw, d_dw,
              t, s_tu, d_tv, s_tv, d_h, s_h, d_u, s_u, d_v, s_v, d_cs, s_cs):
-        #tmp1 = (s_rho[s_idx]*self.dim) / s_alpha[s_idx]
-        #tmp2 = (d_rho[d_idx]*self.dim) / d_alpha[d_idx]
         tmp1 = (s_dw[s_idx]*self.rhow*self.dim) / s_alpha[s_idx]
         tmp2 = (d_dw[d_idx]*self.rhow*self.dim) / d_alpha[d_idx]
 
@@ -708,28 +780,32 @@ class ParticleAccelerations(Equation):
     def _get_helpers_(self):
         return [mu_calc, artificial_visc, viscosity_LF]
 
-    def post_loop(self, d_idx, d_u, d_v, d_tu, d_tv, d_au, d_av, d_Sfx, d_Sfy):
-        bx =  self.bx; by = self.by
-        bxx = self.bxx; bxy = self.bxy
-        byy = self.byy
-        vikivi = d_u[d_idx]*d_u[d_idx]*bxx + 2*d_u[d_idx]*d_v[d_idx]*bxy + \
-                 d_v[d_idx]*d_v[d_idx]*byy
-        tidotgradbi = d_tu[d_idx]*bx + d_tv[d_idx]*by
-        gradbidotgradbi = bx**2 + by**2
+    def post_loop(self, d_idx, d_u, d_v, d_tu, d_tv, d_au, d_av, d_Sfx, d_Sfy,
+                  d_bx, d_by, d_bxx, d_bxy, d_byy):
+        vikivi = d_u[d_idx]*d_u[d_idx]*d_bxx[d_idx] \
+                 + 2*d_u[d_idx]*d_v[d_idx]*d_bxy[d_idx] \
+                 + d_v[d_idx]*d_v[d_idx]*d_byy[d_idx]
+
+        tidotgradbi = d_tu[d_idx]*d_bx[d_idx] + d_tv[d_idx]*d_by[d_idx]
+        gradbidotgradbi = d_bx[d_idx]**2 + d_by[d_idx]**2
+
         temp3 = self.g + vikivi - tidotgradbi
         temp4 = 1 + gradbidotgradbi
+
         if not self.v_only:
-            d_au[d_idx] = -(temp3/temp4)*bx - d_tu[d_idx] - d_Sfx[d_idx]
+            d_au[d_idx] = -(temp3/temp4)*d_bx[d_idx] - d_tu[d_idx] \
+                          - d_Sfx[d_idx]
         if not self.u_only:
-            d_av[d_idx] = -(temp3/temp4)*by - d_tv[d_idx] - d_Sfy[d_idx]
+            d_av[d_idx] = -(temp3/temp4)*d_by[d_idx] - d_tv[d_idx] \
+                          - d_Sfy[d_idx]
 
 
-class BedElevation(Equation):
+class FluidBottomElevation(Equation):
     def initialize(self, d_b, d_idx):
         d_b[d_idx] = 0.0
 
-    def loop_all(self, d_shep_corr, d_x, d_y, d_idx, s_x, s_y, s_m, s_rho,
-                 s_idx, s_h, KERNEL, NBRS, N_NBRS):
+    def loop_all(self, d_shep_corr, d_x, d_y, d_idx, s_x, s_y, s_V, s_idx, s_h,
+                 KERNEL, NBRS, N_NBRS):
         i = declare('int')
         xij = declare('matrix(3)')
         rij = 0.0
@@ -739,13 +815,34 @@ class BedElevation(Equation):
             xij[0] = d_x[d_idx] - s_x[s_idx]
             xij[1] = d_y[d_idx] - s_y[s_idx]
             rij = sqrt(xij[0]*xij[0] + xij[1]*xij[1])
-            corr_sum += (s_m[s_idx]/s_rho[s_idx]) * KERNEL.kernel(xij, rij,
-                                                                  s_h[s_idx])
+            corr_sum += s_V[s_idx] * KERNEL.kernel(xij, rij, s_h[s_idx])
         d_shep_corr[d_idx] = corr_sum
 
     def loop(self, d_b, d_shep_corr, d_idx, s_b, s_idx, WJ, s_V, RIJ):
-        if RIJ > 1e-6:
-            d_b[d_idx] += s_b[s_idx] * (WJ/d_shep_corr[d_idx]) * s_V[s_idx]
+        d_b[d_idx] += s_b[s_idx] * (WJ/d_shep_corr[d_idx]) * s_V[s_idx]
+
+
+class FluidBottomGradient(Equation):
+    def initialize(self, d_idx, d_bx, d_by):
+        d_bx[d_idx] = 0.0
+        d_by[d_idx] = 0.0
+
+    def loop(self, d_idx, d_bx, d_by, WJ, s_idx, s_bx, s_by, s_V):
+        d_bx[d_idx]  +=  s_bx[s_idx] * WJ * s_V[s_idx]
+        d_by[d_idx]  +=  s_by[s_idx] * WJ * s_V[s_idx]
+
+
+class FluidBottomCurvature(Equation):
+    def initialize(self, d_idx, d_bx, d_by, d_bxx, d_bxy, d_byy):
+        d_bxx[d_idx] = 0.0
+        d_bxy[d_idx] = 0.0
+        d_byy[d_idx] = 0.0
+
+    def loop(self, d_idx, d_bxx, d_bxy, d_byy, WJ, s_idx, s_bxx, s_bxy, s_byy,
+             s_V):
+        d_bxx[d_idx]  +=  s_bxx[s_idx] * WJ * s_V[s_idx]
+        d_bxy[d_idx]  +=  s_bxy[s_idx] * WJ * s_V[s_idx]
+        d_byy[d_idx]  +=  s_byy[s_idx] * WJ * s_V[s_idx]
 
 
 class BedGradient(Equation):
@@ -774,9 +871,9 @@ class BedCurvature(Equation):
             temp_bxx = ((4*XIJ[0]**2/RIJ**2)-1) * temp1
             temp_bxy = ((4*XIJ[0]*XIJ[1]/RIJ**2)-1) * temp1
             temp_byy = ((4*XIJ[1]**2/RIJ**2)-1) * temp1
-            d_bxx += temp_bxx * temp2 * s_V[s_idx]
-            d_bxy += temp_bxy * temp2 * s_V[s_idx]
-            d_byy += temp_byy * temp2 * s_V[s_idx]
+            d_bxx[d_idx] += temp_bxx * temp2 * s_V[s_idx]
+            d_bxy[d_idx] += temp_bxy * temp2 * s_V[s_idx]
+            d_byy[d_idx] += temp_byy * temp2 * s_V[s_idx]
 
 
 class BedFrictionSourceEval(Equation):
@@ -871,4 +968,43 @@ class SuperCriticalOutFlow(Equation):
 #    def post_loop(self, d_rho, d_idx, d_dw):
 #        d_rho[d_idx] = d_dw[d_idx] * self.rhow
 
+class GradientCorrection(Equation):
+    r"""**Kernel Gradient Correction**
 
+    .. math::
+            \nabla \tilde{W}_{ab} = L_{a}\nabla W_{ab}
+
+    .. math::
+            L_{a} = \left(\sum \frac{m_{b}}{\rho_{b}}\nabla W_{ab}
+            \mathbf{\times}x_{ab} \right)^{-1}
+    References
+    ----------
+    .. [Bonet and Lok, 1999] Bonet, J. and Lok T.-S.L. (1999)
+        Variational and Momentum Preservation Aspects of Smoothed
+        Particle Hydrodynamic Formulations.
+    """
+
+    def _get_helpers_(self):
+        return [gj_solve]
+
+    def __init__(self, dest, sources, dim=2, tol=0.5):
+        self.dim = dim
+        self.tol = tol
+        super(GradientCorrection, self).__init__(dest, sources)
+
+    def loop(self, d_idx, d_m_mat, DWJ, s_h, s_idx):
+        i, j, n = declare('int', 3)
+        n = self.dim
+        temp = declare('matrix(9)')
+        res = declare('matrix(3)')
+        eps = 1.0e-04 * s_h[s_idx]
+        for i in range(n):
+            for j in range(n):
+                temp[n * i + j] = d_m_mat[9 * d_idx + 3 * i + j]
+        gj_solve(temp, DWJ, n, res)
+        change = 0.0
+        for i in range(n):
+            change += abs(DWJ[i] - res[i]) / (abs(DWJ[i]) + eps)
+        if change <= self.tol:
+            for i in range(n):
+                DWJ[i] = res[i]
