@@ -137,8 +137,12 @@ class CircularDamBreak(Application):
             Group(
                 equations=[
                     SWEOS(dest='fluid'),
-                    ParticleAccelerations(dim, dest='fluid',
-                                          sources=['fluid',]),
+                    ]
+                ),
+            Group(
+                equations=[
+                    ParticleAcceleration(dim, dest='fluid',
+                                         sources=['fluid',]),
                     ],
                 ),
             ]
@@ -151,8 +155,12 @@ def compute_initial_props(particles):
             equations=[
                 CorrectionFactorVariableSmoothingLength(dest='fluid',
                                                         sources=['fluid',]),
+                ]
+            ),
+        Group(
+            equations=[
                 SWEOS(dest='fluid'),
-                ], update_nnps=False
+                ],
             )
     ]
     kernel = CubicSpline(dim=2)

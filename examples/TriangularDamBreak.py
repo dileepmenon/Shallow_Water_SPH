@@ -185,8 +185,8 @@ class TriangularDamBreak(Application):
             Group(
                 equations=[
                     SWEOS(dest='fluid'),
-                    ParticleAccelerations(dim, dhxi=0.4, dest='fluid',
-                                          sources=['fluid',]),
+                    ParticleAcceleration(dim, dhxi=0.4, dest='fluid',
+                                         sources=['fluid',]),
                     ],
                 ),
             ]

@@ -131,8 +131,8 @@ class CircularDamBreak(Application):
                 ),
             Group(
                 equations=[
-                    ParticleAccelerations(dim, dest='fluid', sources=['fluid',],
-                                         ),
+                    ParticleAcceleration(dim, dest='fluid', sources=['fluid',],
+                                        ),
                     ]
                 ),
             Group(

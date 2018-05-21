@@ -1,6 +1,6 @@
 # Numpy
 from numpy import ( ones_like, zeros, zeros_like, mgrid, pi,
-                    arange, sqrt, concatenate, sin, cos, where )
+                    tan, arange, sqrt, concatenate, sin, cos, where )
 
 # PySPH base
 from pysph.base.kernels import CubicSpline
@@ -42,11 +42,33 @@ class RectangularDamBreak(Application):
         rho = ones_like(x) * rho_w * d
         rho0 = ones_like(x) * rho_w * d
 
-        pa = gpa_swe(x=x, y=y, m=m, rho=rho, rho0=rho0, h=h, h0=h0,
+        fluid = gpa_swe(x=x, y=y, m=m, rho=rho, rho0=rho0, h=h, h0=h0,
                      name='fluid')
 
-        compute_initial_props([pa])
-        return [pa]
+        len_f = len(fluid.x) * 9
+        fluid.add_constant('m_mat', [0.0] * len_f)
+
+        # Bed props
+        dxb = dx/2.
+        left_edge_bed = -6
+        right_edge_bed = 6
+        top_edge_bed = 1.0 + 4*dxb
+        bottom_edge_bed = -1.0 - 4*dxb
+        xb, yb = mgrid[left_edge_bed:+right_edge_bed+1e-4:dxb,
+                       bottom_edge_bed:+top_edge_bed+1e-4:dxb]
+        xb = xb.ravel()
+        yb = yb.ravel()
+
+        xb_max = max(xb)
+        b = (xb_max-xb) * tan(10 * pi/180.)
+
+        Vb = ones_like(xb) * dxb * dxb
+        hb = ones_like(xb) * hdx * dx
+
+        bed = gpa_swe(name='bed', x=xb, y=yb, V=Vb, b=b, h=hb)
+
+        compute_initial_props([fluid, bed])
+        return [fluid, bed]
 
     def create_solver(self):
         kernel = CubicSpline(dim=2)
@@ -80,9 +102,10 @@ class RectangularDamBreak(Application):
                     Group(
                         equations=[
                             CorrectionFactorVariableSmoothingLength(
-                                dest='fluid', sources=['fluid',]
+                                dest='fluid', sources=['fluid']
                                 ),
-                            SummationDensity(dest='fluid', sources=['fluid',]),
+                            SummationDensity(dest='fluid', sources=['fluid',
+                                             ]),
                             ]
                         ),
                     Group(
@@ -98,7 +121,8 @@ class RectangularDamBreak(Application):
                         ),
                     Group(
                         equations=[
-                            SummationDensity(dest='fluid', sources=['fluid',]),
+                            SummationDensity(dest='fluid', sources=['fluid',
+                                             ]),
                             ],
                         ),
                     Group(
@@ -111,14 +135,33 @@ class RectangularDamBreak(Application):
             Group(
                 equations=[
                     CorrectionFactorVariableSmoothingLength(
-                        dest='fluid', sources=['fluid',]),
+                        dest='fluid', sources=['fluid']),
                     ]
                 ),
             Group(
                 equations=[
                     SWEOS(dest='fluid'),
-                    ParticleAccelerations(dim, dest='fluid', sources=['fluid',],
-                                          bx=-sin(10*pi/180.), u_only=True),
+                    ]
+                ),
+            #Group(
+            #    equations=[
+            #        GradientCorrection(dest='fluid', sources=['bed'])
+            #        ]
+            #    ),
+            Group(
+                equations=[
+                    FluidBottomElevation(dest='fluid', sources=['bed'])
+                    ]
+                ),
+            Group(
+                equations=[
+                    FluidBottomGradient(dest='fluid', sources=['bed'])
+                    ]
+                ),
+            Group(
+                equations=[
+                    ParticleAcceleration(dim, dest='fluid', sources=['fluid',
+                                         ], u_only=True),
                     ],
                 ),
             ]
@@ -127,12 +170,26 @@ class RectangularDamBreak(Application):
 
 def compute_initial_props(particles):
     one_time_equations = [
+       Group(
+            equations=[
+                FluidBottomElevation(dest='fluid', sources=['bed'])
+                    ]
+            ),
+        Group(
+            equations=[
+                BedGradient(dest='bed', sources=['bed']),
+                ]
+            ),
         Group(
             equations=[
                 CorrectionFactorVariableSmoothingLength(dest='fluid',
-                                                        sources=['fluid',]),
+                                                sources=['fluid']),
+                ]
+            ),
+        Group(
+            equations=[
                 SWEOS(dest='fluid'),
-                ], update_nnps=False
+                ],
             )
     ]
     kernel = CubicSpline(dim=2)

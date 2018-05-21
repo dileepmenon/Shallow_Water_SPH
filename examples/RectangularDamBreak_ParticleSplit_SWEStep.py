@@ -111,8 +111,8 @@ class RectangularDamBreak(Application):
                 ),
             Group(
                 equations=[
-                    ParticleAccelerations(dim, dest='fluid', sources=['fluid',],
-                                          u_only=True),
+                    ParticleAcceleration(dim, dest='fluid', sources=['fluid',],
+                                         u_only=True),
                     ]
                 ),
             Group(

@@ -117,8 +117,8 @@ class RectangularDamBreak(Application):
             Group(
                 equations=[
                     SWEOS(dest='fluid'),
-                    ParticleAccelerations(dim, dest='fluid', sources=['fluid',],
-                                          u_only=True),
+                    ParticleAcceleration(dim, dest='fluid', sources=['fluid',],
+                                         u_only=True),
                     ],
                 ),
             ]

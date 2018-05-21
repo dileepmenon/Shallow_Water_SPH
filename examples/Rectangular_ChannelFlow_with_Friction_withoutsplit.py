@@ -237,7 +237,7 @@ class RectangularOpenChannelFlow(Application):
                 ),
             Group(
                 equations=[
-                    ParticleAccelerations(dim, dest='fluid', sources=['fluid',
+                    ParticleAcceleration(dim, dest='fluid', sources=['fluid',
                                     'inlet', 'outlet', 'boundary'], bx=-0.001,
                                     ),
                     ]
