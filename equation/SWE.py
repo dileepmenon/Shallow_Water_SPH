@@ -41,7 +41,7 @@ def get_particle_array_swe(constants=None, **props):
 
     """
 
-    swe_props = ['A', 'cs', 'n', 'rho0', 'rho_prev_iter', 'rho_residual',
+    swe_props = ['A', 'cs', 'n', 'rho0', 'h0', 'rho_prev_iter', 'rho_residual',
                  'positive_rho_residual', 'summation_rho', 'dw', 'alpha',
                  'exp_lambda', 'tv', 'tu', 'u_prev_step', 'v_prev_step',
                  'uh', 'vh', 'dt_cfl', 'pa_to_split', 'Sfx', 'Sfy', 'V',
@@ -62,9 +62,9 @@ def get_particle_array_swe(constants=None, **props):
     pa.add_property('closest_idx', type='int')
 
     # default property arrays to save out.
-    props = ['x', 'y', 'h', 'rho', 'p', 'A', 'uh', 'vh', 'u', 'v', 'm', 'tu',
-             'tv', 'dw', 'alpha', 'au', 'av', 'Sfx', 'Sfy', 'n', 'cs', 'pid',
-             'gid', 'tag', 'b', 'bx', 'by']
+    props = ['x', 'y', 'h', 'rho', 'h0', 'rho0', 'p', 'A', 'uh', 'vh', 'u',
+            'v', 'm', 'tu', 'tv', 'dw', 'alpha', 'au', 'av', 'Sfx', 'Sfy', 'n',
+            'cs', 'pid', 'gid', 'tag', 'b', 'bx', 'by', 'bxx', 'bxy', 'byy']
     pa.set_output_arrays(props)
 
     return pa
@@ -417,27 +417,6 @@ class NonDimensionalDensityResidual(Equation):
                        / d_rho_prev_iter[d_idx]
 
 
-#class CheckConvergenceDensityResidual(Equation):
-#    def __init__(self, dest, sources=None):
-#        super(CheckConvergenceDensityResidual, self).__init__(dest, sources)
-#        self.eqn_has_converged = 0
-#
-#    def initialize(self):
-#        self.eqn_has_converged = 0
-#
-#    def reduce(self, dst, t, dt):
-#        dst.tmp_comp[0] = serial_reduce_array(dst.psi >= 0.0, 'sum')
-#        dst.tmp_comp[1] = serial_reduce_array(dst.psi**2, 'sum')
-#        dst.get_carray('tmp_comp').set_data(parallel_reduce_array(dst.tmp_comp, 
-#                                                                  'sum'))
-#        epsilon = sqrt(dst.tmp_comp[1] / dst.tmp_comp[0])
-#        if epsilon <= 1e-3:
-#            self.eqn_has_converged = 1
-#
-#    def converged(self):
-#        return self.eqn_has_converged
-
-
 class CheckConvergenceDensityResidual(Equation):
     def __init__(self, dest, sources=None):
         super(CheckConvergenceDensityResidual, self).__init__(dest, sources)
@@ -448,9 +427,7 @@ class CheckConvergenceDensityResidual(Equation):
 
     def reduce(self, dst, t, dt):
         epsilon = max(dst.psi)
-        #print(t, epsilon)
         if epsilon <= 1e-3:
-            #print(t, '-------------------------------------------------')
             self.eqn_has_converged = 1
 
     def converged(self):
@@ -532,16 +509,6 @@ class InitialGuessDensity(Equation):
 
     def post_loop(self, t, d_rho, d_exp_lambda, d_idx):
         d_rho[d_idx] = d_rho[d_idx] * e**(d_exp_lambda[d_idx])
-
-
-#class UpdateSmoothingLength(Equation):
-#    def __init__(self, h0, dim, dest, sources=None):
-#        self.h0 = h0
-#        self.dim = dim
-#        super(UpdateSmoothingLength, self).__init__(dest, sources)
-#
-#    def post_loop(self, d_h, d_rho0, d_rho, d_idx):
-#        d_h[d_idx] = self.h0 * (d_rho0[d_idx]/d_rho[d_idx])**(1./self.dim)
 
 
 class UpdateSmoothingLength(Equation):
@@ -869,7 +836,7 @@ class BedCurvature(Equation):
             temp1 = (d_b[d_idx]-s_b[s_idx]) / (RIJ**2+eta**2)
             temp2 = XIJ[0]*DWJ[0] + XIJ[1]*DWJ[1]
             temp_bxx = ((4*XIJ[0]**2/RIJ**2)-1) * temp1
-            temp_bxy = ((4*XIJ[0]*XIJ[1]/RIJ**2)-1) * temp1
+            temp_bxy = (4*XIJ[0]*XIJ[1]/RIJ**2) * temp1
             temp_byy = ((4*XIJ[1]**2/RIJ**2)-1) * temp1
             d_bxx[d_idx] += temp_bxx * temp2 * s_V[s_idx]
             d_bxy[d_idx] += temp_bxy * temp2 * s_V[s_idx]
