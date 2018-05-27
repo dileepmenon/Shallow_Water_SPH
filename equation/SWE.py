@@ -22,7 +22,7 @@ def get_particle_array_swe(constants=None, **props):
         'dt_cfl', 'pa_to_split', 'Sfx', 'Sfy', 'psi', 'sum_Ak', 'u_parent',
         v_parent', 'uh_parent', 'vh_parent', 'parent_idx', 'b', 'bx', 'by',
         'bxx', 'bxy', byy', 'closest_idx', 'merge', 'dw_inner_reimann',
-        'u_inner_reimann', 'v_inner_reimann', 'shep_corr']
+        'u_inner_reimann', 'v_inner_reimann', 'shep_corr', 'no_art_visc']
 
 
     Parameters
@@ -60,6 +60,7 @@ def get_particle_array_swe(constants=None, **props):
     )
     pa.add_property('parent_idx', type='int')
     pa.add_property('closest_idx', type='int')
+    pa.add_property('no_art_visc', type='int')
 
     # default property arrays to save out.
     props = ['x', 'y', 'h', 'rho', 'h0', 'rho0', 'p', 'A', 'uh', 'vh', 'u',
@@ -714,29 +715,34 @@ class ParticleAcceleration(Equation):
 
     def loop(self, d_x, d_y, s_x, s_y, d_rho, d_idx, s_m, s_idx, s_rho, d_m,
              DWI, DWJ, d_au, d_av, s_alpha, d_alpha, s_p, d_p, d_tu, s_dw, d_dw,
-             t, s_tu, d_tv, s_tv, d_h, s_h, d_u, s_u, d_v, s_v, d_cs, s_cs):
+             t, s_no_art_visc, s_tu, d_tv, s_tv, d_h, s_h, d_u, s_u, d_v, s_v,
+             d_cs, s_cs):
         tmp1 = (s_dw[s_idx]*self.rhow*self.dim) / s_alpha[s_idx]
         tmp2 = (d_dw[d_idx]*self.rhow*self.dim) / d_alpha[d_idx]
 
-        uij = d_u[d_idx] - s_u[s_idx]
-        vij = d_v[d_idx] - s_v[s_idx]
-        xij = d_x[d_idx] - s_x[s_idx]
-        yij = d_y[d_idx] - s_y[s_idx]
-        rij2 = xij**2 + yij**2
-        uij_dot_xij = uij * xij
-        vij_dot_yij = vij * yij
-        velij_dot_rij = uij_dot_xij + vij_dot_yij
-
-        muij = mu_calc(d_h[d_idx], s_h[s_idx], d_rho[d_idx], s_rho[s_idx],
-                       d_cs[d_idx], s_cs[s_idx], velij_dot_rij, rij2)
-
-
-        if velij_dot_rij < 0:
-            pi_visc = self.viscous_func(self.alpha, rij2, d_h[d_idx],
-                                        s_h[s_idx], d_rho[d_idx], s_rho[s_idx],
-                                        d_cs[d_idx], s_cs[s_idx], muij)
+        if s_no_art_visc[s_idx] == 1:
+            pi_visc = 0.0
         else:
-            pi_visc = 0
+            uij = d_u[d_idx] - s_u[s_idx]
+            vij = d_v[d_idx] - s_v[s_idx]
+            xij = d_x[d_idx] - s_x[s_idx]
+            yij = d_y[d_idx] - s_y[s_idx]
+            rij2 = xij**2 + yij**2
+            uij_dot_xij = uij * xij
+            vij_dot_yij = vij * yij
+            velij_dot_rij = uij_dot_xij + vij_dot_yij
+
+            muij = mu_calc(d_h[d_idx], s_h[s_idx], d_rho[d_idx], s_rho[s_idx],
+                        d_cs[d_idx], s_cs[s_idx], velij_dot_rij, rij2)
+
+
+            if velij_dot_rij < 0:
+                pi_visc = self.viscous_func(self.alpha, rij2, d_h[d_idx],
+                                            s_h[s_idx], d_rho[d_idx],
+                                            s_rho[s_idx], d_cs[d_idx],
+                                            s_cs[s_idx], muij)
+            else:
+                pi_visc = 0
 
         d_tu[d_idx] += s_m[s_idx] * ((self.ct*tmp1 + 0.5*pi_visc)*DWJ[0] +
                                      (self.ct*tmp2 + 0.5*pi_visc)*DWI[0])
@@ -933,6 +939,45 @@ class SuperCriticalOutFlow(Equation):
         d_rho[d_idx] = d_dw[d_idx] * self.rhow
 
 
+class GradientCorrectionPreStep(Equation):
+    def __init__(self, dest, sources, dim=2):
+        self.dim = dim
+        super(GradientCorrectionPreStep, self).__init__(dest, sources)
+
+    def initialize(self, d_idx, d_m_mat):
+        i = declare('int')
+        for i in range(9):
+            d_m_mat[9*d_idx + i] = 0.0
+
+    def loop_all(self, d_idx, d_m_mat, s_V, d_x, d_y, d_z, d_h, s_x,
+                 s_y, s_z, s_h, KERNEL, NBRS, N_NBRS):
+        x = d_x[d_idx]
+        y = d_y[d_idx]
+        z = d_z[d_idx]
+        h = d_h[d_idx]
+        i, j, s_idx, n = declare('int', 4)
+        xij = declare('matrix(3)')
+        dwij = declare('matrix(3)')
+        n = self.dim
+        for k in range(N_NBRS):
+            s_idx = NBRS[k]
+            xij[0] = x - s_x[s_idx]
+            xij[1] = y - s_y[s_idx]
+            xij[2] = z - s_z[s_idx]
+            hij = (h + s_h[s_idx]) * 0.5
+            r = sqrt(xij[0]*xij[0] + xij[1]*xij[1] + xij[2]*xij[2])
+            KERNEL.gradient(xij, r, hij, dwij)
+            dw = sqrt(dwij[0]*dwij[0] + dwij[1]*dwij[1]
+                      + dwij[2]*dwij[2])
+            V = s_V[s_idx]
+            if r >= 1.0e-12:
+                for i in range(n):
+                    xi = xij[i]
+                    for j in range(n):
+                        xj = xij[j]
+                        d_m_mat[9*d_idx + 3*i + j] += (dw*V*xi*xj) / r
+
+
 class GradientCorrection(Equation):
     r"""**Kernel Gradient Correction**
 
@@ -965,11 +1010,11 @@ class GradientCorrection(Equation):
         eps = 1.0e-04 * s_h[s_idx]
         for i in range(n):
             for j in range(n):
-                temp[n * i + j] = d_m_mat[9 * d_idx + 3 * i + j]
+                temp[n*i + j] = d_m_mat[9*d_idx + 3*i + j]
         gj_solve(temp, DWJ, n, res)
         change = 0.0
         for i in range(n):
-            change += abs(DWJ[i] - res[i]) / (abs(DWJ[i]) + eps)
+            change += abs(DWJ[i]-res[i]) / (abs(DWJ[i])+eps)
         if change <= self.tol:
             for i in range(n):
                 DWJ[i] = res[i]
